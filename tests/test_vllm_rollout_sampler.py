@@ -270,3 +270,11 @@ def test_rollout_executor_uses_vllm_sampler_config_by_default(monkeypatch):
     assert result["prefix_cache_enabled"] is True
     assert result["num_generations"] is None
     assert result["sampling_params"] == {"max_tokens": 8}
+
+
+def test_rollout_executor_defers_vllm_sampler_config_validation():
+    executor = RolloutExecutor({"backend": "not-vllm"})
+
+    assert executor.sampler_config is None
+    with pytest.raises(ValueError, match="Unsupported rollout sampler backend"):
+        executor.generate_candidates(["prompt-a"])

@@ -21,7 +21,7 @@ class RolloutExecutor:
         self.shared_weights: Dict[str, torch.Tensor] = {}
         self.logp_op = None
         self.attn_op = None
-        self.sampler_config = VLLMSamplerConfig.from_model_config(self.config)
+        self.sampler_config: Optional[VLLMSamplerConfig] = None
         self.sampler: Optional[VLLMSharedPrefixSampler] = None
 
         logger.info("Initializing Zero-Copy enabled RolloutExecutor...")
@@ -59,11 +59,14 @@ class RolloutExecutor:
         kernel-only workflows do not pay the sampler startup cost.
         """
         if self.sampler is None:
-            self.sampler = VLLMSharedPrefixSampler(self.sampler_config)
+            if self.sampler_config is None:
+                self.sampler_config = VLLMSamplerConfig.from_model_config(self.config)
+            sampler_config = self.sampler_config
+            self.sampler = VLLMSharedPrefixSampler(sampler_config)
             logger.info(
                 "Initialized vLLM rollout sampler "
-                f"(prefix_cache={self.sampler_config.enable_prefix_caching}, "
-                f"num_generations={self.sampler_config.num_generations})"
+                f"(prefix_cache={sampler_config.enable_prefix_caching}, "
+                f"num_generations={sampler_config.num_generations})"
             )
         return self.sampler
 
