@@ -2,6 +2,11 @@ import torch
 import triton
 import triton.language as tl
 
+from rl_engine.platforms.autotuner import PersistentKernelAutotuner, tensor_signature
+
+
+_ATTENTION_AUTOTUNER = PersistentKernelAutotuner()
+
 
 @triton.jit
 def _fwd_kernel(
@@ -330,6 +335,273 @@ def _bwd_kernel(
     tl.store(DV_block_ptr, dv.to(v.dtype))
 
 
+def _dedupe_configs(configs):
+    seen = set()
+    unique = []
+    for config in configs:
+        key = tuple(sorted(config.items()))
+        if key not in seen:
+            seen.add(key)
+            unique.append(config)
+    return unique
+
+
+def _default_fwd_config(head_dim: int):
+    return {
+        "BLOCK_M": 64,
+        "BLOCK_N": 64 if head_dim > 64 else 128,
+        "num_warps": 4,
+        "num_stages": 2,
+    }
+
+
+def _fwd_candidate_configs(head_dim: int):
+    configs = [_default_fwd_config(head_dim)]
+    block_m_values = [32, 64]
+    block_n_values = [64] if head_dim > 64 else [64, 128]
+    if head_dim <= 128:
+        block_m_values.append(128)
+
+    for block_m in block_m_values:
+        for block_n in block_n_values:
+            configs.append(
+                {
+                    "BLOCK_M": block_m,
+                    "BLOCK_N": block_n,
+                    "num_warps": 8 if head_dim >= 128 and block_m >= 64 else 4,
+                    "num_stages": 2,
+                }
+            )
+            if head_dim <= 128:
+                configs.append(
+                    {
+                        "BLOCK_M": block_m,
+                        "BLOCK_N": block_n,
+                        "num_warps": 4,
+                        "num_stages": 3,
+                    }
+                )
+    return _dedupe_configs(configs)
+
+
+def _default_bwd_config(_head_dim: int):
+    return {"BLOCK_M": 64, "BLOCK_N": 64, "num_warps": 4, "num_stages": 1}
+
+
+def _bwd_candidate_configs(head_dim: int):
+    configs = [_default_bwd_config(head_dim)]
+    block_m_values = [32, 64]
+    if head_dim <= 64:
+        block_m_values.append(128)
+
+    for block_m in block_m_values:
+        for block_n in (32, 64):
+            configs.append(
+                {
+                    "BLOCK_M": block_m,
+                    "BLOCK_N": block_n,
+                    "num_warps": 8 if head_dim >= 128 else 4,
+                    "num_stages": 1,
+                }
+            )
+            if head_dim <= 128:
+                configs.append(
+                    {
+                        "BLOCK_M": block_m,
+                        "BLOCK_N": block_n,
+                        "num_warps": 4,
+                        "num_stages": 2,
+                    }
+                )
+    return _dedupe_configs(configs)
+
+
+def _attention_shape_key(q, k, v, causal: bool):
+    return {
+        "q": tensor_signature(q),
+        "k": tensor_signature(k),
+        "v": tensor_signature(v),
+        "causal": causal,
+    }
+
+
+def _backward_shape_key(q, k, v, do, causal: bool):
+    key = _attention_shape_key(q, k, v, causal)
+    key["do"] = tensor_signature(do)
+    return key
+
+
+def _launch_fwd(q, k, v, sm_scale, L, M, out, batch, heads, seq_len, head_dim, causal, config):
+    block_m = int(config["BLOCK_M"])
+    block_n = int(config["BLOCK_N"])
+    grid = (triton.cdiv(seq_len, block_m), batch * heads, 1)
+
+    _fwd_kernel[grid](
+        q,
+        k,
+        v,
+        sm_scale,
+        L,
+        M,
+        out,
+        q.stride(0),
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        k.stride(0),
+        k.stride(1),
+        k.stride(2),
+        k.stride(3),
+        v.stride(0),
+        v.stride(1),
+        v.stride(2),
+        v.stride(3),
+        out.stride(0),
+        out.stride(1),
+        out.stride(2),
+        out.stride(3),
+        batch,
+        heads,
+        seq_len,
+        BLOCK_M=block_m,
+        BLOCK_N=block_n,
+        BLOCK_DMODEL=head_dim,
+        IS_CAUSAL=causal,
+        num_warps=int(config["num_warps"]),
+        num_stages=int(config["num_stages"]),
+    )
+
+
+def _launch_bwd_preprocess(out, do, delta, batch, heads, seq_len, head_dim, block_m: int):
+    grid_prep = (triton.cdiv(seq_len, block_m), batch * heads)
+    _bwd_preprocess[grid_prep](
+        out,
+        do,
+        delta,
+        out.stride(0),
+        out.stride(1),
+        out.stride(2),
+        out.stride(3),
+        do.stride(0),
+        do.stride(1),
+        do.stride(2),
+        do.stride(3),
+        batch,
+        heads,
+        seq_len,
+        BLOCK_M=block_m,
+        D_HEAD=head_dim,
+    )
+
+
+def _launch_bwd(
+    q,
+    k,
+    v,
+    sm_scale,
+    out,
+    do,
+    dq,
+    dk,
+    dv,
+    L,
+    M,
+    delta,
+    batch,
+    heads,
+    seq_len,
+    head_dim,
+    causal,
+    config,
+):
+    block_m = int(config["BLOCK_M"])
+    block_n = int(config["BLOCK_N"])
+    grid_bwd = (triton.cdiv(seq_len, block_n), batch * heads, 1)
+    _bwd_kernel[grid_bwd](
+        q,
+        k,
+        v,
+        sm_scale,
+        out,
+        do,
+        dq,
+        dk,
+        dv,
+        L,
+        M,
+        delta,
+        q.stride(0),
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        k.stride(0),
+        k.stride(1),
+        k.stride(2),
+        k.stride(3),
+        v.stride(0),
+        v.stride(1),
+        v.stride(2),
+        v.stride(3),
+        out.stride(0),
+        out.stride(1),
+        out.stride(2),
+        out.stride(3),
+        batch,
+        heads,
+        seq_len,
+        BLOCK_M=block_m,
+        BLOCK_N=block_n,
+        BLOCK_DMODEL=head_dim,
+        IS_CAUSAL=causal,
+        num_warps=int(config["num_warps"]),
+        num_stages=int(config["num_stages"]),
+    )
+
+
+def _launch_full_bwd(
+    q,
+    k,
+    v,
+    sm_scale,
+    out,
+    do,
+    dq,
+    dk,
+    dv,
+    L,
+    M,
+    delta,
+    batch,
+    heads,
+    seq_len,
+    head_dim,
+    causal,
+    config,
+):
+    block_m = int(config["BLOCK_M"])
+    _launch_bwd_preprocess(out, do, delta, batch, heads, seq_len, head_dim, block_m)
+    _launch_bwd(
+        q,
+        k,
+        v,
+        sm_scale,
+        out,
+        do,
+        dq,
+        dk,
+        dv,
+        L,
+        M,
+        delta,
+        batch,
+        heads,
+        seq_len,
+        head_dim,
+        causal,
+        config,
+    )
+
+
 class _TritonAttention(torch.autograd.Function):
 
     @staticmethod
@@ -349,44 +621,31 @@ class _TritonAttention(torch.autograd.Function):
         M = torch.empty((batch, heads, seq_len), device=q.device, dtype=torch.float32)
         L = torch.empty((batch, heads, seq_len), device=q.device, dtype=torch.float32)
 
-        BLOCK_M = 64
-        BLOCK_N = 64 if head_dim > 64 else 128
-
-        grid = (triton.cdiv(seq_len, BLOCK_M), batch * heads, 1)
-
-        _fwd_kernel[grid](
-            q,
-            k,
-            v,
-            sm_scale,
-            L,
-            M,
-            out,
-            q.stride(0),
-            q.stride(1),
-            q.stride(2),
-            q.stride(3),
-            k.stride(0),
-            k.stride(1),
-            k.stride(2),
-            k.stride(3),
-            v.stride(0),
-            v.stride(1),
-            v.stride(2),
-            v.stride(3),
-            out.stride(0),
-            out.stride(1),
-            out.stride(2),
-            out.stride(3),
-            batch,
-            heads,
-            seq_len,
-            BLOCK_M=BLOCK_M,
-            BLOCK_N=BLOCK_N,
-            BLOCK_DMODEL=head_dim,
-            IS_CAUSAL=causal,
-            num_warps=4,
-            num_stages=2,
+        fallback_config = _default_fwd_config(head_dim)
+        fwd_config = _ATTENTION_AUTOTUNER.tune(
+            "triton_flash_attention_forward",
+            _attention_shape_key(q, k, v, causal),
+            _fwd_candidate_configs(head_dim),
+            lambda config: _launch_fwd(
+                q,
+                k,
+                v,
+                sm_scale,
+                L,
+                M,
+                out,
+                batch,
+                heads,
+                seq_len,
+                head_dim,
+                causal,
+                config,
+            ),
+            device=q.device,
+            fallback_config=fallback_config,
+        )
+        _launch_fwd(
+            q, k, v, sm_scale, L, M, out, batch, heads, seq_len, head_dim, causal, fwd_config
         )
 
         ctx.save_for_backward(q, k, v, out, L, M)
@@ -404,31 +663,36 @@ class _TritonAttention(torch.autograd.Function):
         batch, heads, seq_len, head_dim = q.shape
         delta = torch.empty_like(L)
 
-        BLOCK_M = 64
-        BLOCK_N = 64
-
-        grid_prep = (triton.cdiv(seq_len, BLOCK_M), batch * heads)
-        _bwd_preprocess[grid_prep](
-            out,
-            do,
-            delta,
-            out.stride(0),
-            out.stride(1),
-            out.stride(2),
-            out.stride(3),
-            do.stride(0),
-            do.stride(1),
-            do.stride(2),
-            do.stride(3),
-            batch,
-            heads,
-            seq_len,
-            BLOCK_M=BLOCK_M,
-            D_HEAD=head_dim,
+        fallback_config = _default_bwd_config(head_dim)
+        bwd_config = _ATTENTION_AUTOTUNER.tune(
+            "triton_flash_attention_backward",
+            _backward_shape_key(q, k, v, do, ctx.causal),
+            _bwd_candidate_configs(head_dim),
+            lambda config: _launch_full_bwd(
+                q,
+                k,
+                v,
+                ctx.sm_scale,
+                out,
+                do,
+                dq,
+                dk,
+                dv,
+                L,
+                M,
+                delta,
+                batch,
+                heads,
+                seq_len,
+                head_dim,
+                ctx.causal,
+                config,
+            ),
+            device=q.device,
+            fallback_config=fallback_config,
         )
-
-        grid_bwd = (triton.cdiv(seq_len, BLOCK_N), batch * heads, 1)
-        _bwd_kernel[grid_bwd](
+        dq.zero_()
+        _launch_full_bwd(
             q,
             k,
             v,
@@ -441,31 +705,12 @@ class _TritonAttention(torch.autograd.Function):
             L,
             M,
             delta,
-            q.stride(0),
-            q.stride(1),
-            q.stride(2),
-            q.stride(3),
-            k.stride(0),
-            k.stride(1),
-            k.stride(2),
-            k.stride(3),
-            v.stride(0),
-            v.stride(1),
-            v.stride(2),
-            v.stride(3),
-            out.stride(0),
-            out.stride(1),
-            out.stride(2),
-            out.stride(3),
             batch,
             heads,
             seq_len,
-            BLOCK_M=BLOCK_M,
-            BLOCK_N=BLOCK_N,
-            BLOCK_DMODEL=head_dim,
-            IS_CAUSAL=ctx.causal,
-            num_warps=4,
-            num_stages=1,
+            head_dim,
+            ctx.causal,
+            bwd_config,
         )
 
         return dq, dk, dv, None, None
