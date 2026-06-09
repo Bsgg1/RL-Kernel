@@ -98,14 +98,15 @@ class NativeGRPOLossOp:
         """Compute ``(loss, policy_loss, kl)`` from per-token log-probabilities."""
         bool_mask = completion_mask.bool()
 
-        ratio = torch.exp(current_logps.float() - old_logps.float())
+        delta = (current_logps.float() - old_logps.float()).masked_fill(~bool_mask, 0.0)
+        diff = (ref_logps.float() - current_logps.float()).masked_fill(~bool_mask, 0.0)
+        ratio = torch.exp(delta)
         adv = advantages.float()
         unclipped = ratio * adv
         clipped = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * adv
         policy_loss_terms = -torch.minimum(unclipped, clipped)
 
         # k3 reference-KL estimator: exp(d) - d - 1, with d = ref - current.
-        diff = ref_logps.float() - current_logps.float()
         kl_terms = torch.exp(diff) - diff - 1.0
 
         policy_loss = self._masked_mean(policy_loss_terms, bool_mask)
