@@ -133,8 +133,8 @@ export MAX_JOBS=8
 cd /workspace
 git clone '"${PR_REPO_URL:-https://github.com/RL-Align/RL-Kernel.git}"' repo
 cd repo
-git fetch origin '"${PR_SHA}"' || true
-git checkout '"${PR_SHA}"' || true
+git fetch origin '"${PR_SHA}"'
+git checkout --detach '"${PR_SHA}"'
 "$PY" -m pip install -e .
 "$PY" -m pip install pytest
 nvidia-smi
