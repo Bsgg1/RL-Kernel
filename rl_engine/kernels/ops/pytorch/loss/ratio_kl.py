@@ -27,9 +27,7 @@ class NativeRatioKLOp:
         return self.forward(policy_logits, ref_logits, action_ids, attention_mask, old_logps)
 
     def _selected_logp(self, logits: torch.Tensor, action_ids: torch.Tensor) -> torch.Tensor:
-        # Clamp ids first so masked/pad positions never index out of bounds
-        safe_ids = action_ids.clamp(0, logits.size(-1) - 1).long()
-        return self._logp.apply_fp32(logits, safe_ids)
+        return self._logp.apply_fp32(logits, action_ids)
 
     def forward(
         self,
@@ -40,6 +38,13 @@ class NativeRatioKLOp:
         old_logps: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         mask = attention_mask.to(torch.bool)
+        vocab_size = policy_logits.size(-1)
+        invalid = mask & ((action_ids < 0) | (action_ids >= vocab_size))
+        if invalid.any():
+            raise ValueError(
+                f"action_ids at active (unmasked) positions must be in "
+                f"[0, {vocab_size}); found out-of-range ids."
+            )
         logp_policy = self._selected_logp(policy_logits, action_ids)
         with torch.no_grad():
             logp_ref = self._selected_logp(ref_logits, action_ids)

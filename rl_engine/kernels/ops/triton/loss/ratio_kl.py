@@ -127,6 +127,17 @@ class _RatioKLFunction(torch.autograd.Function):
     def forward(ctx, policy_logits, ref_logits, action_ids, attention_mask, old_logps):
         if not policy_logits.is_cuda:
             raise RuntimeError("TritonRatioKLOp requires CUDA/ROCm tensors.")
+        expected = tuple(policy_logits.shape[:-1])
+        for name, t in (
+            ("action_ids", action_ids),
+            ("attention_mask", attention_mask),
+            ("old_logps", old_logps),
+        ):
+            if tuple(t.shape) != expected:
+                raise ValueError(
+                    f"{name} shape {tuple(t.shape)} does not match "
+                    f"policy_logits.shape[:-1] {expected}."
+                )
         V = policy_logits.shape[-1]
         pol = policy_logits.contiguous().view(-1, V)
         ref = ref_logits.contiguous().view(-1, V)
