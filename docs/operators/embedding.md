@@ -22,9 +22,10 @@ h = embedding(token_ids, weight)   # [B, S], [vocab, hidden]  ->  [B, S, hidden]
 
 The op exposes the WS1 dual-path contract:
 
-- `forward(...)` — gathers in fp32, casts back to the weight dtype (Axis-B accuracy
-  candidate / dtype-behavior path).
-- `forward_fp32(...)` — gathers and returns fp32 (the ground-truth golden path).
+- `forward(...)` — gathers in the weight's native dtype, casts the gathered rows back to
+  the weight dtype (Axis-B accuracy candidate / dtype-behavior path).
+- `forward_fp32(...)` — native-dtype gather, then upcasts the result to fp32 (the
+  ground-truth golden path).
 
 ## Backends
 
@@ -56,10 +57,13 @@ kernels land, they are prepended to the priority list and the native op becomes 
 Reference semantics (`forward_fp32`):
 
 ```python
-out = F.embedding(token_ids.long(), weight.float())
+out = F.embedding(token_ids.long(), weight).to(torch.float32)
 ```
 
-- **Ground truth**: `forward_fp32` gathers in and returns fp32.
+- **Ground truth**: `forward_fp32` gathers in the native dtype, then upcasts to fp32.
+  Because a gather is a lossless row copy, this is bitwise-identical to upcasting the
+  whole table first — but it never allocates a multi-GB fp32 copy of the full vocab
+  table for a tiny lookup; only the gathered rows are upcast.
 - **Dtype path**: `forward` runs the same gather, then casts back to the weight dtype;
   it is bitwise-equal to `forward_fp32(...).to(dtype)`.
 - **Lossless gather — no accuracy drift**: a row gather performs no reduction and no

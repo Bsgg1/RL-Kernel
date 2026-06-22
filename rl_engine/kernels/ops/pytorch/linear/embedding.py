@@ -25,13 +25,14 @@ class NativeEmbeddingOp:
 
     def forward(self, token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
         """
-        Canonical entry: gather in fp32, cast the result back to weight.dtype.
+        Canonical entry: gather in the weight's native dtype, then cast the
+        gathered rows to weight.dtype (a no-op here, kept for symmetry).
         This is the dtype-behavior path used as the Axis-B accuracy candidate.
         """
         return self._embedding(token_ids, weight, output_dtype=weight.dtype)
 
     def forward_fp32(self, token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-        """Ground-truth: gather in fp32 and force fp32 output."""
+        """Ground-truth: native-dtype gather, then upcast the result to fp32."""
         return self._embedding(token_ids, weight, output_dtype=torch.float32)
 
     # ------------------------------------------------------------------ #
@@ -44,5 +45,10 @@ class NativeEmbeddingOp:
         *,
         output_dtype: torch.dtype,
     ) -> torch.Tensor:
-        out = F.embedding(token_ids.long(), weight.float())
+        # Embedding is a lossless row gather (pure indexing, no arithmetic), so
+        # gathering in the weight's native dtype and upcasting the small result
+        # is bitwise-identical to upcasting the whole table first -- but it never
+        # allocates a multi-GB fp32 copy of the full vocab table just for a tiny
+        # lookup. Only the gathered rows are upcast.
+        out = F.embedding(token_ids.long(), weight)
         return out.to(output_dtype)
