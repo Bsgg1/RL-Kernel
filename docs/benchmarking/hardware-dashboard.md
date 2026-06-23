@@ -60,4 +60,4 @@ python scripts/run_profile_suite.py \
   --vocab-sizes 4096,128256 \
   --workloads logp-native,logp-fused \
   --output reports/logp_profile.csv
-  ```
+```
