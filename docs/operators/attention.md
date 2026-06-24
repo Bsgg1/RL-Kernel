@@ -13,7 +13,7 @@ friends) are validated against.
 This op covers **only** the softmax attention. Qwen3's QK-Norm and RoPE are applied *before*
 the call (see the chain), so the `q`, `k` passed in are already normalized and rotated.
 
-```
+```text
 q --\
 k ----softmax(QKᵀ/√d + mask)·V--> out
 v --/
@@ -76,9 +76,10 @@ inputs. Masks are built on the inputs' device.
 
 `kernel_registry.get_op("attention")` resolves through the `OpBackend` priority map. On
 `cuda` / `rocm` / `cpu` the only registered backend today is the PyTorch native op
-(`PYTORCH_NATIVE_ATTENTION`), so every device dispatches to the fp32 reference. When fused
-attention kernels land, they are prepended to the priority list and the native op becomes the
-fallback. The production `"attn"` op_type (SDPA-based `PYTORCH_ATTN`, FlashAttention, etc.) is
+(`PYTORCH_NATIVE_ATTENTION`), so every device dispatches to this op. Calling it (`__call__` ->
+`forward(...)`) computes in the input dtype; `forward_fp32(...)` is the explicit fp32 golden
+path. When fused attention kernels land, they are prepended to the priority list and the native
+op becomes the fallback. The production `"attn"` op_type (SDPA-based `PYTORCH_ATTN`, FlashAttention, etc.) is
 a separate dispatch chain and is unaffected.
 
 ## Accuracy

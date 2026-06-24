@@ -264,6 +264,26 @@ def test_key_padding_mask_excludes_padded_keys():
     assert torch.equal(masked, valid_only)
 
 
+# A query whose every key is padded out has an all -inf row; naive softmax would
+# emit NaN. The op defines such fully-masked rows as 0, keeping outputs and grads
+# finite (NaN would poison both and break alignment against downstream kernels).
+def test_fully_masked_query_returns_zero_not_nan():
+    """All keys padded out -> the query yields 0 (not NaN), and grads stay finite."""
+    gen = torch.Generator().manual_seed(9)
+    q = torch.randn(1, _N_HEADS, 4, _HEAD_DIM, generator=gen, requires_grad=True)
+    k = torch.randn(1, _N_KV, 4, _HEAD_DIM, generator=gen)
+    v = torch.randn(1, _N_KV, 4, _HEAD_DIM, generator=gen)
+    mask = torch.zeros(1, 4, dtype=torch.bool)  # all False == every key is padding
+
+    out = NativeAttentionOp().forward_fp32(q, k, v, causal=False, key_padding_mask=mask)
+    assert torch.isfinite(out).all()
+    assert torch.equal(out, torch.zeros_like(out))
+
+    # NaN would propagate through backward; assert the gradient is finite (zero here).
+    out.sum().backward()
+    assert torch.isfinite(q.grad).all()
+
+
 # --------------------------------------------------------------------------- #
 # Axis-B accuracy
 # --------------------------------------------------------------------------- #
@@ -364,7 +384,7 @@ def _enough_gpu_memory(num_bytes: int) -> bool:
         free, _ = torch.cuda.mem_get_info()
     except RuntimeError:
         return False
-    return free > int(num_bytes * 1.5)
+    return free > num_bytes
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA GPU")

@@ -166,6 +166,15 @@ class NativeAttentionOp:
                 scores = scores.masked_fill(pad[:, None, None, :], float("-inf"))
 
             probs = torch.softmax(scores, dim=-1)  # subtracts row max internally
+            if key_padding_mask is not None:
+                # A query whose every valid key is padded out has an all -inf row;
+                # softmax would emit NaN. Define such fully-masked rows as 0 (no key
+                # contributes), keeping outputs/grads finite. Only key_padding_mask can
+                # fully mask a row -- causal alone always leaves a query its own key --
+                # so this guard lives in the padding branch and the no-pad path is
+                # untouched. Row-independent, so Axis-A batch invariance still holds.
+                all_masked = ~torch.isfinite(scores).any(dim=-1, keepdim=True)
+                probs = torch.where(all_masked, torch.zeros_like(probs), probs)
             out = torch.matmul(probs, vf)  # [B, Hq, Sq, D]
             return out.to(output_dtype)
 
