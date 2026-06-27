@@ -139,7 +139,8 @@ python -m pytest tests/test_attention.py -v
 Covers: `forward_fp32` vs an independent fp32 reference (bitwise), strict-fp32 under hostile
 autocast/TF32, closed-form causal/decode checks, GQA replication and the divisibility guard,
 scale defaults, key-padding masking, dtype-path accuracy (Axis-B), output shape, Axis-A batch
-invariance (slice + chunked + padding), input purity, gradient flow, registry dispatch, and a
+invariance (slice + chunked, bitwise; padding is near-equality only, see below), input purity,
+gradient flow, registry dispatch, and a
 GPU-only LARGE Qwen3-8B real-shape smoke test.
 
 ## Implementation Files
