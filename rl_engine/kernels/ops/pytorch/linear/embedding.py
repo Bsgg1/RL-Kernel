@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 
 
-class NativeEmbeddingOp:
+class NativeEmbeddingOp(torch.nn.Module):
     """
     Pure PyTorch native token-embedding reference.
     out = weight[token_ids]   (a plain row gather, no accumulation)
@@ -18,10 +18,7 @@ class NativeEmbeddingOp:
     """
 
     def __init__(self) -> None:
-        pass
-
-    def __call__(self, token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-        return self.forward(token_ids, weight)
+        super().__init__()
 
     def forward(self, token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
         """
