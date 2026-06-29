@@ -189,7 +189,7 @@ python scripts/check_operator.py   --op logp   --candidate pytorch   --device cp
 Supported key options:
 
 ```text
---op              Operator name. The minimal version supports logp.
+--op              Operator name. The minimal version supports logp and linear_logp.
 --candidate       Candidate backend, for example pytorch, cuda, cuda-generic, cuda-sm90, registry.
 --dtype           fp32, bf16, or fp16.
 --device          auto, cpu, cuda, or another torch device string.
@@ -422,3 +422,58 @@ Reasoning:
 - Forward-only checks can miss incorrect or disconnected backward paths.
 - Gradient inputs must be declared per operator because not every floating tensor should receive gradients.
 - Input generation remains independent of autograd; the runner clones inputs and enables `requires_grad` only inside the backward check path.
+
+Known backend limitation:
+
+- `cuda` `logp` currently calls the compiled `_C.fused_logp` forward path directly and does not produce an autograd-connected output.
+- Running `--check-grad` against `candidate=cuda` fails with a missing `grad_fn`; this is a backend implementation gap, not a tolerance issue.
+- To support `cuda logp` backward, the backend must add or wrap a real backward path, usually via `torch.autograd.Function` or an explicit CUDA backward kernel.
+
+### Linear LogP Triton GTest Smoke Support
+
+Files:
+
+```text
+rl_engine/kernels/gtest/operator_inputs.py
+rl_engine/kernels/gtest/operator_specs.py
+tests/test_operator_inputs.py
+docs/contributing/issue-108-session-log.md
+```
+
+Change:
+
+- Added `linear_logp` input construction with `hidden`, `lm_head_weight`, `target_ids`, and `bias=None`.
+- Added a `linear_logp` operator spec using `NativeLinearLogpOp.apply` as the PyTorch gold path.
+- Added `triton` as a `linear_logp` candidate backend.
+- Declared `("hidden", "lm_head_weight")` as gradient inputs for backward checks.
+
+Reasoning:
+
+- `linear_logp` is the smallest real fused op in the repository with an implemented Triton backward path.
+- The first gtest integration keeps bias disabled to avoid optional-gradient handling in the initial smoke path.
+- The op reuses the `logprob` tolerance class because it produces selected-token log probabilities.
+- It gives the checker a real non-PyTorch differentiable candidate for end-to-end forward/backward reporting.
+
+Example Triton smoke command:
+
+```bash
+python scripts/check_operator.py   --op linear_logp   --candidate triton   --device cuda   --dtype bf16   --batch 1   --seq 2   --vocab 1024   --normalized-dim 4096   --check-grad
+```
+
+Observed bf16 result on H100:
+
+```text
+suite=linear_logp passed=False pass_rate=0.0000
+candidate=triton-linear_logp backend=triton passed=False pass_rate=0.6667
+  case=linear_logp-torch.bfloat16-1x2x4096x1024 output=0 shape=(1, 2) dtype=torch.float32 max_abs=4.76226807e-01 mean_abs=4.74334717e-01 max_rel=2.96434597e-03 tol=(atol=5.000e-02, rtol=0.000e+00) passed=False
+  case=linear_logp-torch.bfloat16-1x2x4096x1024 output=1 gradient:hidden shape=(1, 2, 4096) dtype=torch.bfloat16 max_abs=0.00000000e+00 mean_abs=0.00000000e+00 max_rel=0.00000000e+00 tol=(atol=5.000e-02, rtol=0.000e+00) passed=True
+  case=linear_logp-torch.bfloat16-1x2x4096x1024 output=2 gradient:lm_head_weight shape=(1024, 4096) dtype=torch.bfloat16 max_abs=0.00000000e+00 mean_abs=0.00000000e+00 max_rel=0.00000000e+00 tol=(atol=5.000e-02, rtol=0.000e+00) passed=True
+```
+
+Interpretation:
+
+- The checker flow is complete: CLI parsing, input construction, PyTorch gold loading, Triton candidate loading, forward execution, backward execution, gradient collection, comparison, and report formatting all ran successfully.
+- The suite is intentionally not marked as passing because the bf16 forward output exceeded the current `logprob` absolute tolerance.
+- The current tolerance uses `atol=5.0e-2` and `rtol=0.0`; the observed forward absolute error is about `4.76e-1`, while the relative error is about `2.96e-3`.
+- `linear_logp` includes a large bf16 matrix multiply before selected-token logprob, so it likely needs an operator-specific gold policy or tolerance rather than reusing plain `logprob` tolerances unchanged.
+- In this case, both checked gradients passed, so the failure is a forward accuracy/tolerance calibration issue, not a failure to execute the backward checker path.

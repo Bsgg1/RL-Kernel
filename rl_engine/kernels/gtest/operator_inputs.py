@@ -30,6 +30,7 @@ def make_operator_inputs(
         "matmul": _make_matmul_inputs,
         "attention": _make_attention_inputs,
         "logp": _make_logp_inputs,
+        "linear_logp": _make_linear_logp_inputs,
         "rope": _make_rope_inputs,
         "silu": _make_silu_inputs,
         "swiglu": _make_swiglu_inputs,
@@ -51,6 +52,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
         "logp": f"{batch}x{seq}x{vocab}",
+        "linear_logp": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "rope": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
@@ -108,6 +110,20 @@ def _make_logp_inputs(
     return {
         "logits": _floating_tensor((batch, seq, vocab), args, dtype, device, offset=0),
         "token_ids": _token_ids((batch, seq), vocab, args, device),
+    }
+
+
+def _make_linear_logp_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    hidden_dim = _normalized_dim(args)
+    vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
+    return {
+        "hidden": _floating_tensor((batch, seq, hidden_dim), args, dtype, device, offset=0),
+        "lm_head_weight": _floating_tensor((vocab, hidden_dim), args, dtype, device, offset=1),
+        "target_ids": _token_ids((batch, seq), vocab, args, device),
+        "bias": None,
     }
 
 

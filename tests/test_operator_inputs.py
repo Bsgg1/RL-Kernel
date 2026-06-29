@@ -37,6 +37,7 @@ def _args(**overrides):
         "matmul",
         "attention",
         "logp",
+        "linear_logp",
         "rope",
         "silu",
         "swiglu",
@@ -68,3 +69,13 @@ def test_random_logp_inputs_are_seeded():
 
     assert torch.equal(first["logits"], second["logits"])
     assert torch.equal(first["token_ids"], second["token_ids"])
+
+
+def test_constant_linear_logp_inputs_match_operator_contract():
+    args = _args(input_mode="constant", constant_value=0.5, token_value=3)
+    inputs = make_operator_inputs("linear_logp", args, torch.float32, torch.device("cpu"))
+
+    assert torch.equal(inputs["hidden"], torch.full((1, 2, 128), 0.5))
+    assert torch.equal(inputs["lm_head_weight"], torch.full((17, 128), 0.51))
+    assert torch.equal(inputs["target_ids"], torch.full((1, 2), 3, dtype=torch.long))
+    assert inputs["bias"] is None

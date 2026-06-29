@@ -19,6 +19,7 @@ class OperatorSpec:
     name: str
     op_class: str
     gold_path: str
+    gold_method: str
     registry_name: str
     candidate_paths: dict[str, str]
     grad_input_names: tuple[str, ...] = ()
@@ -36,6 +37,7 @@ OP_SPECS = {
         name="logp",
         op_class="logprob",
         gold_path="rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp",
+        gold_method="forward_fp32",
         registry_name="logp",
         candidate_paths={
             "pytorch": "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp",
@@ -44,6 +46,19 @@ OP_SPECS = {
             "cuda-sm90": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op",
         },
         grad_input_names=("logits",),
+    ),
+    "linear_logp": OperatorSpec(
+        name="linear_logp",
+        op_class="logprob",
+        gold_path="rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp",
+        gold_method="apply",
+        registry_name="linear_logp",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp",
+            "triton": "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp",
+            "cuda-sm90": "rl_engine.kernels.ops.cuda.loss.linear_logp.FusedLinearLogpSM90Op",
+        },
+        grad_input_names=("hidden", "lm_head_weight"),
     ),
 }
 
@@ -68,12 +83,13 @@ def make_operator_case(
 ) -> OperatorCase:
     spec = OP_SPECS[args.op]
     gold_op = _load_object(spec.gold_path)()
+    gold_fn = getattr(gold_op, spec.gold_method)
     return OperatorCase(
         name=f"{args.op}-{dtype}-{operator_shape_name(args.op, args)}",
         op_class=spec.op_class,
         dtype=dtype,
         inputs=make_operator_inputs(args.op, args, dtype, device),
-        gold_fn=gold_op.forward_fp32,
+        gold_fn=gold_fn,
         grad_input_names=spec.grad_input_names,
     )
 
