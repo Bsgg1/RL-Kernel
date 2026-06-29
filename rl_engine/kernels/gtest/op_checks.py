@@ -146,6 +146,7 @@ def _run_case(
     case: OperatorCase,
     contract: Mapping[str, Any],
 ) -> CaseCheck:
+    # TODO(issue-108): add optional gradient checks for differentiable operators.
     candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, case.inputs))
     gold_outputs = _flatten_tensors(case.gold_fn(**case.inputs))
     if len(candidate_outputs) != len(gold_outputs):
