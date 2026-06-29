@@ -56,6 +56,11 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
     PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
+    PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
+    PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+
+    # WS1 pure-PyTorch ground-truth embedding ops
+    PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
 
 
 class KernelRegistry:
@@ -93,6 +98,9 @@ class KernelRegistry:
                 "linear_logp": [OpBackend.TRITON_LINEAR_LOGP, OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
+                "silu": [OpBackend.PYTORCH_NATIVE_SILU],
+                "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 # Default dispatch logic for new operators
             },
             "rocm": {
@@ -106,6 +114,9 @@ class KernelRegistry:
                 "linear_logp": [OpBackend.TRITON_LINEAR_LOGP, OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
+                "silu": [OpBackend.PYTORCH_NATIVE_SILU],
+                "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -114,6 +125,9 @@ class KernelRegistry:
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
+                "silu": [OpBackend.PYTORCH_NATIVE_SILU],
+                "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
             },
         }
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
