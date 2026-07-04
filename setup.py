@@ -37,6 +37,10 @@ def get_extensions():
         return []
 
     extensions = []
+    torch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
+    torch_rpath = ["-Wl,-rpath,$ORIGIN/../torch/lib"]
+    if os.environ.get("KERNEL_ALIGN_DEV_RPATH") == "1":
+        torch_rpath.append(f"-Wl,-rpath,{torch_lib_dir}")
     is_rocm = torch.version.hip is not None
 
     if is_rocm and ROCMExtension is not None:
@@ -51,6 +55,7 @@ def get_extensions():
                     "cxx": ["-O3", "-std=c++17"],
                     "hipcc": ["-O3", "--use_fast_math", "-Xhipcc", "-compress-all"],
                 },
+                extra_link_args=list(torch_rpath),
             )
         )
     elif torch.cuda.is_available():
@@ -108,13 +113,17 @@ def get_extensions():
             nvcc_flags.append("-lineinfo")
 
         cxx_flags = ["-O3", "-std=c++17", "-DKERNEL_ALIGN_WITH_CUDA"]
-        extra_link_args = []
+        extra_link_args = list(torch_rpath)
 
-        tma_src = "csrc/cuda/fused_logp_sm90.cu"
+        sm90_srcs = [
+            "csrc/cuda/fused_logp_sm90.cu",
+            "csrc/cuda/fused_linear_logp_sm90.cu",  # TMA + WGMMA fused linear log-prob
+        ]
         enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
-        if enable_sm90 and os.path.exists(tma_src):
-            tma_arch = f"{cc_major}{cc_minor}a"
-            cuda_sources.append(tma_src)
+        present_sm90 = [s for s in sm90_srcs if os.path.exists(s)]
+        if enable_sm90 and present_sm90:
+            tma_arch = f"{cc_major}{cc_minor}a"  # WGMMA/TMA require the arch-native 'a' variant
+            cuda_sources.extend(present_sm90)
             nvcc_flags.append(f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}")
             cxx_flags.append("-DKERNEL_ALIGN_WITH_SM90")
             extra_link_args.append("-lcuda")

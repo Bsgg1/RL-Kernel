@@ -18,8 +18,14 @@ Every operator page should include:
 
 ## Current Pages
 
+- [SiLU / SwiGLU Activation](activation.md)
 - [Fused LogP](fused-logp.md)
+- [Fused Linear LogP](linear-logp.md)
+- [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
 - [RoPE](rope.md)
+- [LM Head](lm_head.md)
+- [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Sampling](sampling.md)
+- [Token Embedding](embedding.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
