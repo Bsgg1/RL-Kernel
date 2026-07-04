@@ -56,6 +56,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
     PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
+    PYTORCH_NATIVE_MATMUL = "rl_engine.kernels.ops.pytorch.linear.matmul.NativeMatmulOp"
     PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
@@ -106,6 +107,7 @@ class KernelRegistry:
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 # Default dispatch logic for new operators
+                "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
             },
             "rocm": {
@@ -119,6 +121,7 @@ class KernelRegistry:
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
                 "linear_logp": [OpBackend.TRITON_LINEAR_LOGP, OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
+                "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
@@ -132,6 +135,7 @@ class KernelRegistry:
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
+                "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],

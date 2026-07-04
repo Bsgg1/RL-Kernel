@@ -26,6 +26,7 @@ Every operator page should include:
 - [RoPE](rope.md)
 - [LM Head](lm_head.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
+- [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
