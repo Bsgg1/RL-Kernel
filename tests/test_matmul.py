@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 import torch
 
@@ -12,6 +14,16 @@ from rl_engine.kernels.ops.pytorch.linear.matmul import NativeMatmulOp
 
 QWEN3_HIDDEN = 4096
 QWEN3_INTERMEDIATE = 12288
+
+
+@contextmanager
+def _single_threaded_torch():
+    old_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        yield
+    finally:
+        torch.set_num_threads(old_threads)
 
 
 def _make_inputs(
@@ -111,6 +123,36 @@ class TestNativeMatmulOpBatchInvariance:
         out_padded = op.forward_fp32(a_padded, b)
         assert torch.equal(out_valid[0], out_padded[0])
         assert torch.equal(out_valid[1], out_padded[1])
+
+    def test_batch_grad_invariance(self):
+        op = NativeMatmulOp()
+        a, b = _make_inputs(4, 8, 512, 384, seed=654)
+        # Use a non-unit upstream gradient to exercise the real backward path.
+        grad_out = torch.randn(4, 8, 384, generator=torch.Generator().manual_seed(987))
+
+        with _single_threaded_torch():
+            full_a = a.clone().requires_grad_(True)
+            full_b = b.clone().requires_grad_(True)
+            (op.forward_fp32(full_a, full_b) * grad_out).sum().backward()
+
+            single_a_grads = []
+            single_b_grads = []
+            for row in range(a.shape[0]):
+                single_a = a[row : row + 1].clone().requires_grad_(True)
+                # The shared weight gradient is the sum of all per-batch contributions.
+                single_b = b.clone().requires_grad_(True)
+                single_grad_out = grad_out[row : row + 1]
+                (op.forward_fp32(single_a, single_b) * single_grad_out).sum().backward()
+                single_a_grads.append(single_a.grad[0])
+                single_b_grads.append(single_b.grad)
+
+        assert torch.equal(full_a.grad, torch.stack(single_a_grads))
+        torch.testing.assert_close(
+            full_b.grad,
+            torch.stack(single_b_grads).sum(dim=0),
+            atol=1e-5,
+            rtol=1e-6,
+        )
 
 
 class TestNativeMatmulOpAccuracy:
