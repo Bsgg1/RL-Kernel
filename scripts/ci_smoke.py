@@ -51,6 +51,8 @@ def main() -> int:
         token_ids = torch.randint(0, 32, (4,), device="cuda", dtype=torch.long)
         out = _C.fused_logp(logits, token_ids)
         torch.cuda.synchronize()
+    # Broad on purpose: an arch mismatch raises a CUDA RuntimeError (not ImportError),
+    # and any launch failure whatsoever must fail the smoke check loudly.
     except Exception as exc:
         print(
             "[smoke] FATAL: rl_engine._C built but fused_logp failed to launch on "
@@ -63,7 +65,9 @@ def main() -> int:
         return 1
 
     if tuple(out.shape) != (4,):
-        print(f"[smoke] FATAL: unexpected fused_logp output shape {tuple(out.shape)}", file=sys.stderr)
+        print(
+            f"[smoke] FATAL: unexpected fused_logp output shape {tuple(out.shape)}", file=sys.stderr
+        )
         return 1
 
     print(f"[smoke] OK: rl_engine._C built and fused_logp ran on sm_{cc[0]}{cc[1]}.")

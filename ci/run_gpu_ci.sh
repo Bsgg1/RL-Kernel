@@ -168,7 +168,9 @@ if [ -n "$REQUESTED_SM" ]; then
 else
   BUILD_SM=$(normalize_sm "$ACTUAL_SM") || { echo "[remote] FATAL: unsupported detected arch $ACTUAL_SM"; exit 3; }
 fi
-case "$BUILD_SM" in *+PTX) export TORCH_CUDA_ARCH_LIST="$BUILD_SM" ;; *) export TORCH_CUDA_ARCH_LIST="${BUILD_SM}+PTX" ;; esac
+# BUILD_SM is always a bare arch here (the REQUESTED path strips +PTX and detection
+# returns a bare cap), so append +PTX unconditionally for forward-compat JIT.
+export TORCH_CUDA_ARCH_LIST="${BUILD_SM}+PTX"
 echo "[remote] Detected GPU sm_$ACTUAL_SM; building _C for TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
 
 cd /workspace
