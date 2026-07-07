@@ -15,6 +15,11 @@ FALLBACK_GPU_COUNT="${FALLBACK_GPU_COUNT:-1}"
 # than silently compiling+launching mismatched SASS.
 TARGET_SM="${TARGET_SM:-}"
 
+# Set to 1 (e.g. from an sm90+ matrix job) to compile the Hopper TMA/WGMMA kernels.
+# Forwarded into the remote pod build below; setup.py only builds them when this is "1",
+# so without forwarding it an H100 job would silently skip the Hopper kernels.
+KERNEL_ALIGN_FORCE_SM90="${KERNEL_ALIGN_FORCE_SM90:-}"
+
 CI_IMAGE="${CI_IMAGE:-runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04}"
 DISK_GB=40
 PR_SHA="${PR_SHA:-$(date +%s)}"
@@ -135,6 +140,9 @@ fi
 echo "[remote] Using interpreter: $PY"
 export FORCE_CUDA=1
 export MAX_JOBS=8
+# Forward the Hopper-kernel build flag from the host (matrix) into the pod build, so
+# setup.py actually compiles the sm90 TMA/WGMMA kernels when an sm90+ job requests them.
+export KERNEL_ALIGN_FORCE_SM90="'"${KERNEL_ALIGN_FORCE_SM90}"'"
 
 # --- Determine the compile architecture (replaces the hardcoded sm_86) ---
 # Normalize a compact (e.g. 90) or dotted (e.g. 9.0) compute cap to torch dotted
