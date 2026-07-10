@@ -36,6 +36,8 @@ For this integration, vime keeps the same high-level workflow:
 
 This makes the integration deliberately non-intrusive. If the fused operator path is not enabled, vime can still use the native output layer and native selected-logprob implementation. When RL-Kernel is enabled and the fast path is hit, the training side avoids materializing full logits for selected-logprob computation.
 
+RL-Kernel is not designed around a single path for every workload. Instead, operator paths should be observable and selectable: validated shape, hardware, and dtype combinations can use a performance-oriented fast path, while tasks that put rollout-training consistency first can use a consistency-first path. These goals are complementary. This first integration validates the `linear_logp` fast path inside the full vime workflow; future work will expand both consistency coverage and performance coverage under the same visible selection and fallback model.
+
 ## Architecture Overview
 
 RL-Kernel is designed as an operator-layer bridge between high-level RL orchestration and low-level GPU backends. It integrates with rollout engines and training engines through custom operator hooks, while the actual kernels are implemented through CUDA, Triton, ROCm, and related backend libraries.
@@ -117,6 +119,10 @@ T3 is the clearest single-operator memory result: the peak reserved delta drops 
 <em>The memory comparison is scoped to the `linear_logp` operator, matching the timing comparison.</em>
 </p>
 
+### End-to-End Step Time Scope
+
+The current results are primarily operator-level gains for `linear_logp`: lower CUDA time and lower peak reserved memory. In the largest no-trace stable window, full step time moved from **232.20s** to **228.40s**, a modest **1.6%** improvement; in the same window, full-run peak reserved memory dropped from **49.26GB** to **46.23GB**, saving about **3.03GB**. Because a full RL step also includes rollout, weight sync, TP/NCCL communication, and framework scheduling, we do not claim this release as a significant end-to-end step-time speedup. This is the first-stage vime + RL-Kernel integration; future work will expand to more RL hot paths and communication-aware / TP-aware operators, with additional end-to-end experiments.
+
 ### Stability and Sanity Signals
 
 The completed vime + RL-Kernel runs preserve the expected training signals. Losses remain finite, rewards remain in the same range as vime, and train-rollout logprob differences stay in the same order of magnitude.
@@ -158,6 +164,7 @@ Fourth, full-gradient backward also moves onto a faster path. RL-Kernel organize
 RL-Kernel and vime will continue to evolve along several practical directions:
 
 - **Train-inference consistency first**: We will prioritize operator-level rollout-training consistency, then push operator performance to the limit under that guarantee.
+- **Observable path selection**: Continue improving selection among fast paths, consistency-first paths, and native fallbacks so workloads can make clear tradeoffs among performance, coverage, and rollout-training consistency.
 - **Deeper vime integration**: Improve operator selection, fallback visibility, timing counters, and weight-sync instrumentation for long-running RL jobs.
 - **More RL-specific kernels**: Extend fused and memory-efficient paths beyond `linear_logp` to other GRPO, PPO, DPO, attention, sampling, and MoE hot spots.
 - **Broader hardware coverage**: Continue maturing CUDA paths while expanding Triton and ROCm backends so the same operator-level API can serve more accelerator environments.
