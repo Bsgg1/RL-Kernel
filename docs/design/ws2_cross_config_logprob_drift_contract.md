@@ -27,6 +27,23 @@ early failure phase, because the first-order issue is token-level rollout-vs-tra
 probability disagreement before the optimizer update, not necessarily a large aggregate
 policy-space shift.
 
+## Framework Upgrade Overview
+
+The upgrade moves cross-config validation from two separately configured execution paths
+that require a manual comparison into a shared runtime flow. `RuntimeTools` coordinates
+the rollout and training configurations, while `PairedRunner` collects their selected
+logprobs and performs the comparison automatically. This keeps both sides aligned on the
+same inputs and makes drift visible as part of the run rather than as a follow-up manual
+check.
+
+![Before and after framework upgrade](../assets/ws2-cross-config-before-after.png)
+
+The left side shows the pre-upgrade flow, where `VLLMSamplerConfig` and
+`TorchRLTrainingConfig` feed independent executors and the results are manually compared.
+The right side shows the upgraded flow, where `RuntimeTools` and `PairedRunner` connect the
+two paths and produce an automatic comparison while preserving the shared
+`KernelRegistry` contract.
+
 ## Scope
 
 This RFC defines what WS2 cross-config alignment measures, how failures are classified,
