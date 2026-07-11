@@ -3,7 +3,6 @@ nav:
   - Blog:
     - blog/README.md
     - Announcing RL-Kernel for vime: blog/2026-07-08-announcing-rl-kernel-linear-logp-for-vime.md
-    - 中文版：vime + RL-Kernel: blog/2026-07-08-announcing-rl-kernel-linear-logp-for-vime-zh.md
   - User Guide:
     - usage/README.md
     - usage/weight-sync-bridge.md
