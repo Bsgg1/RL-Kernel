@@ -31,7 +31,6 @@ jobs:
       matrix:
         include:
           - { gpu_id: "NVIDIA RTX A4000",      target_sm: "8.6" }   # SM86
-          - { gpu_id: "NVIDIA A100 80GB PCIe", target_sm: "8.0" }   # SM80
           - { gpu_id: "NVIDIA H100 80GB HBM3", target_sm: "9.0", force_sm90: "1" }  # SM90
 
     steps:
