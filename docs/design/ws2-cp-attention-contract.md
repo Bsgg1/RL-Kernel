@@ -1,0 +1,167 @@
+# WS2 CP-Aware Attention Contract
+
+Status: PR1 contract and dispatch metadata
+
+Tracking and shared contracts:
+
+- [#235: CP-aware deterministic Attention](https://github.com/RL-Align/RL-Kernel/issues/235)
+- [#83: WS2 roadmap](https://github.com/RL-Align/RL-Kernel/issues/83)
+- [#108: WS1 numerical contract](https://github.com/RL-Align/RL-Kernel/issues/108)
+- [#111: WS2 cross-config alignment](https://github.com/RL-Align/RL-Kernel/issues/111)
+- [#207: cross-config logprob drift contract](https://github.com/RL-Align/RL-Kernel/issues/207)
+
+## Scope
+
+This contract describes the logical inputs and deterministic reduction semantics for standard
+softmax Attention under tensor parallelism (TP) and context parallelism (CP). It lets runtime
+dispatch reject a backend whose numerical semantics do not match the requested layout.
+
+This PR1 layer does not shard tensors, launch a collective, merge CP partial states, or implement
+a fused kernel. The deterministic CP reference implementation and its distributed numerical tests
+belong to later work in #235.
+
+## Contract Objects
+
+`rl_engine.kernels.attention_contract` defines:
+
+- `AttentionContract`: role, mode, dtype, causal metadata, sharding, reduction, and optional cache
+  identity;
+- `ShardingSpec`: TP-local head ownership and CP block-to-token ownership;
+- `ReductionSpec`: fixed `(out, lse)` merge semantics;
+- `KVCacheSpec`: decode replay cache identity;
+- `AttentionBackendCapability`: the layouts and semantics a backend explicitly supports.
+
+Construction performs validation immediately. A structurally valid contract means that the
+request is complete and internally consistent; it does not mean that an installed backend can
+materialize it.
+
+## Qwen3-8B TP=4 CP=4 Example
+
+```python
+from rl_engine.kernels.attention_contract import (
+    AttentionContract,
+    ReductionSpec,
+    ShardingSpec,
+)
+
+sharding = ShardingSpec(
+    tp_rank=0,
+    tp_world_size=4,
+    cp_rank=0,
+    cp_world_size=4,
+    global_q_heads=32,
+    global_kv_heads=8,
+    local_q_head_start=0,
+    local_q_heads=8,
+    local_kv_head_start=0,
+    local_kv_heads=2,
+    global_sequence_length=4096,
+    local_sequence_length=1024,
+    global_block_indices=(0,),
+    global_block_token_starts=(0,),
+    local_block_offsets=(0, 1024),
+)
+
+contract = AttentionContract(
+    role="infer",
+    mode="prefill",
+    dtype="bf16",
+    batch_size=1,
+    query_sequence_length=1024,
+    head_dim=128,
+    causal=True,
+    causal_offsets=(0,),
+    sharding=sharding,
+    reduction=ReductionSpec(),
+)
+```
+
+The TP fields preserve the global Qwen3 GQA mapping: each rank owns 8 of 32 query heads and 2 of
+8 KV heads. The CP fields map local tensor slices to stable logical global block ids. A rank that
+owns non-contiguous blocks uses one global token start per block and one extra local boundary:
+
+```python
+global_block_indices=(0, 7)
+global_block_token_starts=(0, 3584)
+local_block_offsets=(0, 512, 1024)
+```
+
+This metadata is sufficient for a later implementation to restore logical global order without
+using ring arrival order.
+
+## Reduction Semantics
+
+The only PR1 reduction contract is:
+
+```text
+partial state: (out, attention-domain lse)
+merge: online_softmax_lse
+acc_dtype: fp32
+order: global_block_index
+downcast_at: final_write
+engine: in_op_reference
+```
+
+CP output is not a plain sum. A backend that cannot export attention-domain LSE or cannot merge
+partial states in fixed logical order is incompatible with this contract.
+
+The acceptable output and selected-logprob drift thresholds remain owned by #108. This contract
+does not introduce another tolerance table. When connected to the rollout/training chain, the
+selected-token metric remains the #207 convention:
+
+```text
+dlogp = training-side recomputed logp - rollout-side old logp
+```
+
+## Mode-Specific Metadata
+
+All causal calls provide `causal_offsets`. Packed varlen calls provide one causal offset per
+packed sequence and validated `packed_sequence_offsets`.
+
+Decode additionally requires `KVCacheSpec` with:
+
+- one cache position and KV sequence length per logical sequence;
+- a block/page table;
+- global token positions for every logical cached token;
+- a prefix-cache key when prefix caching is enabled.
+
+Missing decode cache identity is an error at contract construction time.
+
+## Contract-Aware Dispatch
+
+Legacy callers continue to use `KernelRegistry.get_op()`. WS2 callers use:
+
+```python
+result = kernel_registry.get_attention_op(contract)
+op = result.op
+provenance = result.provenance
+```
+
+Dispatch considers only backends with an `AttentionBackendCapability`. It checks role, attention
+mode, dtype, TP/CP degree, LSE export, deterministic CP merge, packed varlen, and KV-cache support.
+An undeclared or incompatible backend is skipped with an explicit rejection reason.
+
+The current WS1 PyTorch Attention implementations support local reference math but do not export
+attention-domain LSE or materialize deterministic CP merge. Strict WS2 requests therefore fail
+clearly today. A later deterministic backend becomes selectable by registering a capability that
+truthfully declares those features; no grid-planner branch or silent fallback is required.
+
+Successful dispatch provenance records:
+
+- requested and actual backend ids;
+- platform and fallback status;
+- prior candidate rejection reasons;
+- the complete requested contract;
+- the selected backend capability descriptor.
+
+## Validation
+
+Contract and dispatch behavior are covered by:
+
+```bash
+python -m pytest tests/test_attention_contract.py -q
+```
+
+The tests include Qwen3 TP=4/CP=4 construction, GQA ownership errors, non-contiguous CP blocks,
+packed varlen metadata, decode cache identity, undeclared backend rejection, no incompatible
+fallback, and JSON-compatible provenance.

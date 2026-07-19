@@ -83,6 +83,17 @@ path. When fused attention kernels land, they are prepended to the priority list
 op becomes the fallback. The production `"attn"` op_type (SDPA-based `PYTORCH_ATTN`, FlashAttention, etc.) is
 a separate dispatch chain and is unaffected.
 
+### WS2 CP-aware dispatch
+
+WS2 distributed callers use a separate contract-aware entry point,
+`kernel_registry.get_attention_op(contract)`. It validates explicit TP/CP ownership, fixed
+`(out, lse)` merge semantics, causal or packed-sequence offsets, and decode KV-cache identity
+before selecting a backend. Legacy `get_op("attention")` behavior remains unchanged.
+
+Existing WS1 implementations do not yet export attention-domain LSE or implement deterministic
+CP merge, so they are declared incompatible with strict WS2 requests instead of being selected as
+a silent fallback. See [WS2 CP-aware Attention contract](../design/ws2-cp-attention-contract.md).
+
 ## Accuracy
 
 Reference semantics (`forward_fp32`, fp32 accumulation, TF32/autocast disabled):
