@@ -279,6 +279,7 @@ class KVCacheSpec:
     page_size: int
     prefix_cache_enabled: bool = False
     prefix_cache_key: str | None = None
+    shared_prefix_page_count: int = 0
 
     def __post_init__(self) -> None:
         cache_positions = _integer_tuple(self.cache_positions, "cache_positions")
@@ -305,6 +306,7 @@ class KVCacheSpec:
                 f"expected {sum(kv_seq_lens)}, got {len(global_token_positions)}"
             )
         token_offset = 0
+        sequence_position_rows: list[tuple[int, ...]] = []
         for sequence_index, sequence_length in enumerate(kv_seq_lens):
             sequence_positions = global_token_positions[
                 token_offset : token_offset + sequence_length
@@ -317,6 +319,7 @@ class KVCacheSpec:
                     "global_token_positions must be strictly increasing within each sequence; "
                     f"sequence {sequence_index} is invalid"
                 )
+            sequence_position_rows.append(sequence_positions)
             token_offset += sequence_length
 
         try:
@@ -329,6 +332,7 @@ class KVCacheSpec:
             raise AttentionContractError(
                 "block_table must contain one non-empty row per kv_seq_lens entry"
             )
+        active_block_rows: list[tuple[int, ...]] = []
         for row_index, (row, sequence_length) in enumerate(
             zip(block_table, kv_seq_lens, strict=True)
         ):
@@ -360,9 +364,13 @@ class KVCacheSpec:
                 raise AttentionContractError(
                     f"block_table row {row_index} contains duplicate active page ids"
                 )
+            active_block_rows.append(tuple(active_blocks))
 
         if not isinstance(self.prefix_cache_enabled, bool):
             raise AttentionContractError("prefix_cache_enabled must be a bool")
+        shared_prefix_page_count = _non_negative_int(
+            self.shared_prefix_page_count, "shared_prefix_page_count"
+        )
         if self.prefix_cache_enabled and not self.prefix_cache_key:
             raise AttentionContractError(
                 "prefix_cache_key is required when prefix_cache_enabled=True"
@@ -371,6 +379,58 @@ class KVCacheSpec:
             raise AttentionContractError(
                 "prefix_cache_key must be None when prefix_cache_enabled=False"
             )
+        if not self.prefix_cache_enabled and shared_prefix_page_count != 0:
+            raise AttentionContractError(
+                "shared_prefix_page_count must be 0 when prefix_cache_enabled=False"
+            )
+
+        shared_prefix_pages: tuple[int, ...] = ()
+        if shared_prefix_page_count > 0:
+            if any(
+                len(active_blocks) < shared_prefix_page_count for active_blocks in active_block_rows
+            ):
+                raise AttentionContractError(
+                    "shared_prefix_page_count exceeds an active block-table row"
+                )
+            shared_prefix_token_count = shared_prefix_page_count * page_size
+            if any(length < shared_prefix_token_count for length in kv_seq_lens):
+                raise AttentionContractError(
+                    "shared prefix pages must be fully populated and read-only"
+                )
+
+            shared_prefix_pages = active_block_rows[0][:shared_prefix_page_count]
+            shared_prefix_positions = sequence_position_rows[0][:shared_prefix_token_count]
+            for sequence_index, (active_blocks, positions) in enumerate(
+                zip(active_block_rows[1:], sequence_position_rows[1:], strict=True), start=1
+            ):
+                if active_blocks[:shared_prefix_page_count] != shared_prefix_pages:
+                    raise AttentionContractError(
+                        "shared prefix page ids must match across every sequence; "
+                        f"sequence {sequence_index} is inconsistent"
+                    )
+                if positions[:shared_prefix_token_count] != shared_prefix_positions:
+                    raise AttentionContractError(
+                        "shared prefix token positions must match across every sequence; "
+                        f"sequence {sequence_index} is inconsistent"
+                    )
+
+        exclusive_page_owners: dict[int, int] = {}
+        shared_prefix_page_ids = set(shared_prefix_pages)
+        for sequence_index, active_blocks in enumerate(active_block_rows):
+            for page_id in active_blocks[shared_prefix_page_count:]:
+                if page_id in shared_prefix_page_ids:
+                    raise AttentionContractError(
+                        "a writable suffix page cannot alias a read-only shared prefix page"
+                    )
+                previous_owner = exclusive_page_owners.get(page_id)
+                if previous_owner is not None:
+                    raise AttentionContractError(
+                        "active pages may be shared across sequences only when declared as "
+                        "read-only prefix pages; "
+                        f"page {page_id} is used by sequences {previous_owner} and "
+                        f"{sequence_index}"
+                    )
+                exclusive_page_owners[page_id] = sequence_index
 
         object.__setattr__(self, "cache_positions", cache_positions)
         object.__setattr__(self, "kv_seq_lens", kv_seq_lens)
@@ -495,6 +555,7 @@ class AttentionContract:
                 "page_size": self.kv_cache.page_size,
                 "prefix_cache_enabled": self.kv_cache.prefix_cache_enabled,
                 "prefix_cache_key": self.kv_cache.prefix_cache_key,
+                "shared_prefix_page_count": self.kv_cache.shared_prefix_page_count,
             }
         return {
             "semantic_operator": "standard_softmax_attention",

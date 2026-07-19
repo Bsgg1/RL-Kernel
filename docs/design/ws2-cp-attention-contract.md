@@ -128,12 +128,16 @@ Decode additionally requires `KVCacheSpec` with:
 - a block/page table;
 - the physical page size;
 - global token positions for every logical cached token;
-- a prefix-cache key when prefix caching is enabled.
+- a prefix-cache key and explicit shared-prefix page count when prefix caching is enabled.
 
 Within each logical sequence, global token positions must be strictly increasing. Block-table
 padding must be trailing, the active page count must match `ceil(kv_seq_len / page_size)`, and a
 sequence cannot repeat one physical page id. Different sequences may share physical pages for an
-equivalent prefix. Missing or inconsistent decode cache identity is an error at contract
+equivalent prefix only when those pages are declared by `shared_prefix_page_count`, use the same
+leading page ids and logical positions, and are fully populated. Declared shared prefix pages are
+read-only; all suffix pages are exclusive to one sequence, providing the contract boundary needed
+for copy-on-write before divergent decode. When prefix caching is disabled, no active page may be
+shared across sequences. Missing or inconsistent decode cache identity is an error at contract
 construction time.
 
 ## Contract-Aware Dispatch

@@ -280,9 +280,91 @@ def test_prefix_pages_may_be_shared_across_sequences():
         page_size=2,
         prefix_cache_enabled=True,
         prefix_cache_key="shared-prefix",
+        shared_prefix_page_count=1,
     )
 
     assert cache.block_table == ((3,), (3,))
+    assert cache.shared_prefix_page_count == 1
+
+
+def test_non_prefix_cache_rejects_cross_sequence_page_sharing():
+    with pytest.raises(AttentionContractError, match="only when declared"):
+        KVCacheSpec(
+            cache_positions=(1, 1),
+            kv_seq_lens=(2, 2),
+            block_table=((3,), (3,)),
+            global_token_positions=(0, 1, 0, 1),
+            page_size=2,
+            prefix_cache_enabled=False,
+        )
+
+
+def test_prefix_cache_requires_explicit_shared_page_count():
+    with pytest.raises(AttentionContractError, match="only when declared"):
+        KVCacheSpec(
+            cache_positions=(1, 1),
+            kv_seq_lens=(2, 2),
+            block_table=((3,), (3,)),
+            global_token_positions=(0, 1, 0, 1),
+            page_size=2,
+            prefix_cache_enabled=True,
+            prefix_cache_key="shared-prefix",
+            shared_prefix_page_count=0,
+        )
+
+
+def test_prefix_cache_rejects_shared_writable_suffix_pages():
+    with pytest.raises(AttentionContractError, match="only when declared"):
+        KVCacheSpec(
+            cache_positions=(3, 3),
+            kv_seq_lens=(4, 4),
+            block_table=((3, 4), (3, 4)),
+            global_token_positions=(0, 1, 2, 3, 0, 1, 2, 3),
+            page_size=2,
+            prefix_cache_enabled=True,
+            prefix_cache_key="shared-prefix",
+            shared_prefix_page_count=1,
+        )
+
+
+def test_shared_prefix_identity_must_match_pages_and_positions():
+    with pytest.raises(AttentionContractError, match="page ids must match"):
+        KVCacheSpec(
+            cache_positions=(3, 3),
+            kv_seq_lens=(4, 4),
+            block_table=((3, 4), (5, 6)),
+            global_token_positions=(0, 1, 2, 3, 0, 1, 2, 3),
+            page_size=2,
+            prefix_cache_enabled=True,
+            prefix_cache_key="shared-prefix",
+            shared_prefix_page_count=1,
+        )
+
+    with pytest.raises(AttentionContractError, match="token positions must match"):
+        KVCacheSpec(
+            cache_positions=(3, 13),
+            kv_seq_lens=(4, 4),
+            block_table=((3, 4), (3, 5)),
+            global_token_positions=(0, 1, 2, 3, 10, 11, 12, 13),
+            page_size=2,
+            prefix_cache_enabled=True,
+            prefix_cache_key="shared-prefix",
+            shared_prefix_page_count=1,
+        )
+
+
+def test_shared_prefix_pages_must_be_fully_populated():
+    with pytest.raises(AttentionContractError, match="fully populated and read-only"):
+        KVCacheSpec(
+            cache_positions=(0, 0),
+            kv_seq_lens=(1, 1),
+            block_table=((3,), (3,)),
+            global_token_positions=(0, 0),
+            page_size=2,
+            prefix_cache_enabled=True,
+            prefix_cache_key="partial-prefix-page",
+            shared_prefix_page_count=1,
+        )
 
 
 def test_current_ws1_backend_rejects_strict_cp_contract_without_fallback():
