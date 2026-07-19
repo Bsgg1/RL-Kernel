@@ -276,12 +276,14 @@ class KVCacheSpec:
     kv_seq_lens: tuple[int, ...]
     block_table: tuple[tuple[int, ...], ...]
     global_token_positions: tuple[int, ...]
+    page_size: int
     prefix_cache_enabled: bool = False
     prefix_cache_key: str | None = None
 
     def __post_init__(self) -> None:
         cache_positions = _integer_tuple(self.cache_positions, "cache_positions")
         kv_seq_lens = _integer_tuple(self.kv_seq_lens, "kv_seq_lens")
+        page_size = _positive_int(self.page_size, "page_size")
         global_token_positions = _integer_tuple(
             self.global_token_positions, "global_token_positions"
         )
@@ -289,6 +291,10 @@ class KVCacheSpec:
             raise AttentionContractError("cache_positions must contain non-negative positions")
         if not kv_seq_lens or any(length <= 0 for length in kv_seq_lens):
             raise AttentionContractError("kv_seq_lens must contain positive sequence lengths")
+        if len(cache_positions) != len(kv_seq_lens):
+            raise AttentionContractError(
+                "cache_positions must contain one entry per kv_seq_lens entry"
+            )
         if not global_token_positions or any(position < 0 for position in global_token_positions):
             raise AttentionContractError(
                 "global_token_positions must contain non-negative positions"
@@ -298,6 +304,20 @@ class KVCacheSpec:
                 "global_token_positions must describe every logical cached token; "
                 f"expected {sum(kv_seq_lens)}, got {len(global_token_positions)}"
             )
+        token_offset = 0
+        for sequence_index, sequence_length in enumerate(kv_seq_lens):
+            sequence_positions = global_token_positions[
+                token_offset : token_offset + sequence_length
+            ]
+            if any(
+                left >= right
+                for left, right in zip(sequence_positions, sequence_positions[1:], strict=False)
+            ):
+                raise AttentionContractError(
+                    "global_token_positions must be strictly increasing within each sequence; "
+                    f"sequence {sequence_index} is invalid"
+                )
+            token_offset += sequence_length
 
         try:
             block_table = tuple(tuple(row) for row in self.block_table)
@@ -309,13 +329,37 @@ class KVCacheSpec:
             raise AttentionContractError(
                 "block_table must contain one non-empty row per kv_seq_lens entry"
             )
-        for row_index, row in enumerate(block_table):
+        for row_index, (row, sequence_length) in enumerate(
+            zip(block_table, kv_seq_lens, strict=True)
+        ):
+            active_blocks: list[int] = []
+            saw_padding = False
             for column_index, block in enumerate(row):
                 if isinstance(block, bool) or not isinstance(block, int) or block < -1:
                     raise AttentionContractError(
                         "block_table entries must be integer block ids or -1 padding; "
                         f"got block_table[{row_index}][{column_index}]={block!r}"
                     )
+                if block == -1:
+                    saw_padding = True
+                    continue
+                if saw_padding:
+                    raise AttentionContractError(
+                        "block_table -1 padding must be trailing; "
+                        f"row {row_index} contains an active block after padding"
+                    )
+                active_blocks.append(block)
+
+            expected_blocks = (sequence_length + page_size - 1) // page_size
+            if len(active_blocks) != expected_blocks:
+                raise AttentionContractError(
+                    "block_table active page count must match kv_seq_lens and page_size; "
+                    f"row {row_index} expected {expected_blocks}, got {len(active_blocks)}"
+                )
+            if len(set(active_blocks)) != len(active_blocks):
+                raise AttentionContractError(
+                    f"block_table row {row_index} contains duplicate active page ids"
+                )
 
         if not isinstance(self.prefix_cache_enabled, bool):
             raise AttentionContractError("prefix_cache_enabled must be a bool")
@@ -362,6 +406,13 @@ class AttentionContract:
             raise AttentionContractError("sharding must be a ShardingSpec")
         if not isinstance(self.reduction, ReductionSpec):
             raise AttentionContractError("reduction must be a ReductionSpec")
+        if self.sharding.packed_sequence_offsets is not None:
+            packed_sequence_count = len(self.sharding.packed_sequence_offsets) - 1
+            if packed_sequence_count != batch_size:
+                raise AttentionContractError(
+                    "packed sequence count must equal logical batch_size; "
+                    f"got {packed_sequence_count} packed sequences and batch_size={batch_size}"
+                )
         if not isinstance(self.causal, bool):
             raise AttentionContractError("causal must be a bool")
         if self.causal:
@@ -372,7 +423,7 @@ class AttentionContract:
             if not causal_offsets or any(offset < 0 for offset in causal_offsets):
                 raise AttentionContractError("causal_offsets must contain non-negative offsets")
             if self.sharding.packed_sequence_offsets is not None:
-                expected_causal_offsets = len(self.sharding.packed_sequence_offsets) - 1
+                expected_causal_offsets = batch_size
                 offset_owner = "packed sequence"
             else:
                 expected_causal_offsets = batch_size
@@ -441,6 +492,7 @@ class AttentionContract:
                 "kv_seq_lens": list(self.kv_cache.kv_seq_lens),
                 "block_table": [list(row) for row in self.kv_cache.block_table],
                 "global_token_positions": list(self.kv_cache.global_token_positions),
+                "page_size": self.kv_cache.page_size,
                 "prefix_cache_enabled": self.kv_cache.prefix_cache_enabled,
                 "prefix_cache_key": self.kv_cache.prefix_cache_key,
             }

@@ -209,6 +209,7 @@ def test_decode_requires_complete_kv_cache_identity():
         kv_seq_lens=(17,),
         block_table=((0, 1, -1),),
         global_token_positions=tuple(range(17)),
+        page_size=16,
         prefix_cache_enabled=True,
         prefix_cache_key="prefix:sample-0",
     )
@@ -223,8 +224,65 @@ def test_prefix_cache_key_is_required_only_when_prefix_cache_is_enabled():
             kv_seq_lens=(17,),
             block_table=((0, 1),),
             global_token_positions=tuple(range(17)),
+            page_size=16,
             prefix_cache_enabled=True,
         )
+
+
+def test_cache_positions_must_match_kv_sequence_count():
+    with pytest.raises(AttentionContractError, match="one entry per kv_seq_lens"):
+        KVCacheSpec(
+            cache_positions=(1,),
+            kv_seq_lens=(2, 2),
+            block_table=((0,), (1,)),
+            global_token_positions=(0, 1, 0, 1),
+            page_size=2,
+        )
+
+
+@pytest.mark.parametrize("positions", [(7, 6), (7, 7)])
+def test_kv_cache_positions_must_be_strictly_increasing_per_sequence(positions):
+    with pytest.raises(AttentionContractError, match="strictly increasing"):
+        KVCacheSpec(
+            cache_positions=(7,),
+            kv_seq_lens=(2,),
+            block_table=((0,),),
+            global_token_positions=positions,
+            page_size=2,
+        )
+
+
+@pytest.mark.parametrize(
+    ("block_table", "message"),
+    [
+        ((0, -1, 1), "padding must be trailing"),
+        ((0, 0, -1), "duplicate active page ids"),
+        ((0, -1, -1), "active page count"),
+    ],
+)
+def test_kv_cache_block_table_page_mapping_is_validated(block_table, message):
+    with pytest.raises(AttentionContractError, match=message):
+        KVCacheSpec(
+            cache_positions=(16,),
+            kv_seq_lens=(17,),
+            block_table=(block_table,),
+            global_token_positions=tuple(range(17)),
+            page_size=16,
+        )
+
+
+def test_prefix_pages_may_be_shared_across_sequences():
+    cache = KVCacheSpec(
+        cache_positions=(1, 1),
+        kv_seq_lens=(2, 2),
+        block_table=((3,), (3,)),
+        global_token_positions=(0, 1, 0, 1),
+        page_size=2,
+        prefix_cache_enabled=True,
+        prefix_cache_key="shared-prefix",
+    )
+
+    assert cache.block_table == ((3,), (3,))
 
 
 def test_current_ws1_backend_rejects_strict_cp_contract_without_fallback():
@@ -281,6 +339,17 @@ def test_packed_layout_requires_declared_backend_support():
     contract = _contract(
         sharding=_sharding(packed_sequence_offsets=(0, 512, 1024)),
         causal_offsets=(0, 0),
+        batch_size=2,
     )
 
     assert capability.incompatibilities(contract) == ("packed varlen layout is unsupported",)
+
+
+def test_packed_sequence_count_must_match_logical_batch_size():
+    sharding = _sharding(packed_sequence_offsets=(0, 512, 1024))
+
+    with pytest.raises(AttentionContractError, match="must equal logical batch_size"):
+        _contract(sharding=sharding, causal_offsets=(0, 0), batch_size=1)
+
+    contract = _contract(sharding=sharding, causal_offsets=(0, 0), batch_size=2)
+    assert contract.batch_size == 2

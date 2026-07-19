@@ -35,6 +35,10 @@ Construction performs validation immediately. A structurally valid contract mean
 request is complete and internally consistent; it does not mean that an installed backend can
 materialize it.
 
+`AttentionContract.batch_size` is the logical sequence count. For packed varlen input it must
+equal `len(packed_sequence_offsets) - 1`; it is not the physical leading dimension of a flattened
+token tensor.
+
 ## Qwen3-8B TP=4 CP=4 Example
 
 ```python
@@ -122,10 +126,15 @@ Decode additionally requires `KVCacheSpec` with:
 
 - one cache position and KV sequence length per logical sequence;
 - a block/page table;
+- the physical page size;
 - global token positions for every logical cached token;
 - a prefix-cache key when prefix caching is enabled.
 
-Missing decode cache identity is an error at contract construction time.
+Within each logical sequence, global token positions must be strictly increasing. Block-table
+padding must be trailing, the active page count must match `ceil(kv_seq_len / page_size)`, and a
+sequence cannot repeat one physical page id. Different sequences may share physical pages for an
+equivalent prefix. Missing or inconsistent decode cache identity is an error at contract
+construction time.
 
 ## Contract-Aware Dispatch
 
