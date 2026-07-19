@@ -336,7 +336,7 @@ class KVCacheSpec:
         for row_index, (row, sequence_length) in enumerate(
             zip(block_table, kv_seq_lens, strict=True)
         ):
-            active_blocks: list[int] = []
+            row_active_blocks: list[int] = []
             saw_padding = False
             for column_index, block in enumerate(row):
                 if isinstance(block, bool) or not isinstance(block, int) or block < -1:
@@ -352,19 +352,19 @@ class KVCacheSpec:
                         "block_table -1 padding must be trailing; "
                         f"row {row_index} contains an active block after padding"
                     )
-                active_blocks.append(block)
+                row_active_blocks.append(block)
 
             expected_blocks = (sequence_length + page_size - 1) // page_size
-            if len(active_blocks) != expected_blocks:
+            if len(row_active_blocks) != expected_blocks:
                 raise AttentionContractError(
                     "block_table active page count must match kv_seq_lens and page_size; "
-                    f"row {row_index} expected {expected_blocks}, got {len(active_blocks)}"
+                    f"row {row_index} expected {expected_blocks}, got {len(row_active_blocks)}"
                 )
-            if len(set(active_blocks)) != len(active_blocks):
+            if len(set(row_active_blocks)) != len(row_active_blocks):
                 raise AttentionContractError(
                     f"block_table row {row_index} contains duplicate active page ids"
                 )
-            active_block_rows.append(tuple(active_blocks))
+            active_block_rows.append(tuple(row_active_blocks))
 
         if not isinstance(self.prefix_cache_enabled, bool):
             raise AttentionContractError("prefix_cache_enabled must be a bool")
@@ -386,9 +386,7 @@ class KVCacheSpec:
 
         shared_prefix_pages: tuple[int, ...] = ()
         if shared_prefix_page_count > 0:
-            if any(
-                len(active_blocks) < shared_prefix_page_count for active_blocks in active_block_rows
-            ):
+            if any(len(row_blocks) < shared_prefix_page_count for row_blocks in active_block_rows):
                 raise AttentionContractError(
                     "shared_prefix_page_count exceeds an active block-table row"
                 )
@@ -400,10 +398,10 @@ class KVCacheSpec:
 
             shared_prefix_pages = active_block_rows[0][:shared_prefix_page_count]
             shared_prefix_positions = sequence_position_rows[0][:shared_prefix_token_count]
-            for sequence_index, (active_blocks, positions) in enumerate(
+            for sequence_index, (row_blocks, positions) in enumerate(
                 zip(active_block_rows[1:], sequence_position_rows[1:], strict=True), start=1
             ):
-                if active_blocks[:shared_prefix_page_count] != shared_prefix_pages:
+                if row_blocks[:shared_prefix_page_count] != shared_prefix_pages:
                     raise AttentionContractError(
                         "shared prefix page ids must match across every sequence; "
                         f"sequence {sequence_index} is inconsistent"
@@ -416,8 +414,8 @@ class KVCacheSpec:
 
         exclusive_page_owners: dict[int, int] = {}
         shared_prefix_page_ids = set(shared_prefix_pages)
-        for sequence_index, active_blocks in enumerate(active_block_rows):
-            for page_id in active_blocks[shared_prefix_page_count:]:
+        for sequence_index, row_blocks in enumerate(active_block_rows):
+            for page_id in row_blocks[shared_prefix_page_count:]:
                 if page_id in shared_prefix_page_ids:
                     raise AttentionContractError(
                         "a writable suffix page cannot alias a read-only shared prefix page"
