@@ -39,6 +39,10 @@ materialize it.
 equal `len(packed_sequence_offsets) - 1`; it is not the physical leading dimension of a flattened
 token tensor.
 
+For full `prefill`, `query_sequence_length` equals the local sequence length described by
+`ShardingSpec`. Chunked prefill and decode may use shorter query lengths than their available KV
+context.
+
 ## Qwen3-8B TP=4 CP=4 Example
 
 ```python
@@ -139,6 +143,10 @@ read-only; all suffix pages are exclusive to one sequence, providing the contrac
 for copy-on-write before divergent decode. When prefix caching is disabled, no active page may be
 shared across sequences. Missing or inconsistent decode cache identity is an error at contract
 construction time.
+
+Each `cache_positions` entry is the terminal logical position already present in that sequence's
+KV cache, so it must equal the final corresponding `global_token_positions` entry. It is not the
+next position to be written.
 
 ## Contract-Aware Dispatch
 

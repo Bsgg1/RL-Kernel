@@ -67,6 +67,7 @@ def _contract(
     kv_cache: KVCacheSpec | None = None,
     causal_offsets: tuple[int, ...] = (0,),
     batch_size: int = 1,
+    query_sequence_length: int | None = None,
 ) -> AttentionContract:
     resolved_sharding = sharding or _sharding()
     return AttentionContract(
@@ -74,7 +75,11 @@ def _contract(
         mode=mode,
         dtype="bf16",
         batch_size=batch_size,
-        query_sequence_length=(1 if mode == "decode" else resolved_sharding.local_sequence_length),
+        query_sequence_length=(
+            query_sequence_length
+            if query_sequence_length is not None
+            else (1 if mode == "decode" else resolved_sharding.local_sequence_length)
+        ),
         head_dim=128,
         causal=True,
         causal_offsets=causal_offsets,
@@ -200,6 +205,26 @@ def test_causal_attention_requires_explicit_offset():
         replace(contract, causal_offsets=None)
 
 
+def test_full_prefill_query_length_must_match_local_sequence_length():
+    with pytest.raises(AttentionContractError, match="prefill query_sequence_length must equal"):
+        _contract(mode="prefill", query_sequence_length=2048)
+
+    chunked = _contract(mode="chunked_prefill", query_sequence_length=512)
+    decode = _contract(
+        mode="decode",
+        query_sequence_length=1,
+        kv_cache=KVCacheSpec(
+            cache_positions=(16,),
+            kv_seq_lens=(17,),
+            block_table=((0, 1),),
+            global_token_positions=tuple(range(17)),
+            page_size=16,
+        ),
+    )
+    assert chunked.query_sequence_length == 512
+    assert decode.query_sequence_length == 1
+
+
 def test_decode_requires_complete_kv_cache_identity():
     with pytest.raises(AttentionContractError, match="kv_cache metadata is required"):
         _contract(mode="decode")
@@ -237,6 +262,17 @@ def test_cache_positions_must_match_kv_sequence_count():
             block_table=((0,), (1,)),
             global_token_positions=(0, 1, 0, 1),
             page_size=2,
+        )
+
+
+def test_cache_position_must_match_terminal_global_token_position():
+    with pytest.raises(AttentionContractError, match="terminal global token position"):
+        KVCacheSpec(
+            cache_positions=(999,),
+            kv_seq_lens=(17,),
+            block_table=((0, 1),),
+            global_token_positions=tuple(range(17)),
+            page_size=16,
         )
 
 

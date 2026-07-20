@@ -322,6 +322,17 @@ class KVCacheSpec:
             sequence_position_rows.append(sequence_positions)
             token_offset += sequence_length
 
+        for sequence_index, (cache_position, sequence_positions) in enumerate(
+            zip(cache_positions, sequence_position_rows, strict=True)
+        ):
+            terminal_position = sequence_positions[-1]
+            if cache_position != terminal_position:
+                raise AttentionContractError(
+                    "cache_positions must equal the terminal global token position for each "
+                    f"sequence; sequence {sequence_index} expected {terminal_position}, "
+                    f"got {cache_position}"
+                )
+
         try:
             block_table = tuple(tuple(row) for row in self.block_table)
         except TypeError as exc:
@@ -458,12 +469,20 @@ class AttentionContract:
         object.__setattr__(self, "mode", _enum_value(AttentionMode, self.mode, "mode"))
         object.__setattr__(self, "dtype", _enum_value(AttentionDType, self.dtype, "dtype"))
         batch_size = _positive_int(self.batch_size, "batch_size")
-        _positive_int(self.query_sequence_length, "query_sequence_length")
+        query_sequence_length = _positive_int(self.query_sequence_length, "query_sequence_length")
         _positive_int(self.head_dim, "head_dim")
         if not isinstance(self.sharding, ShardingSpec):
             raise AttentionContractError("sharding must be a ShardingSpec")
         if not isinstance(self.reduction, ReductionSpec):
             raise AttentionContractError("reduction must be a ReductionSpec")
+        if (
+            self.mode is AttentionMode.PREFILL
+            and query_sequence_length != self.sharding.local_sequence_length
+        ):
+            raise AttentionContractError(
+                "prefill query_sequence_length must equal sharding.local_sequence_length; "
+                f"got {query_sequence_length} and {self.sharding.local_sequence_length}"
+            )
         if self.sharding.packed_sequence_offsets is not None:
             packed_sequence_count = len(self.sharding.packed_sequence_offsets) - 1
             if packed_sequence_count != batch_size:
