@@ -27,7 +27,9 @@ class _KernelEnumMeta(EnumMeta):
             return super().__getitem__(name)
         except KeyError as e:
             valid_ops = ", ".join(cls.__members__.keys())
-            raise ValueError(f"Operator '{name}' not found. Supported backends: {valid_ops}") from e
+            raise ValueError(
+                f"Operator '{name}' not found. Supported backends: {valid_ops}"
+            ) from e
 
 
 class OpBackend(Enum, metaclass=_KernelEnumMeta):
@@ -38,12 +40,16 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # TMA-accelerated LogP for SM90+ (Warp Specialization)
     CUDA_FUSED_LOGP_SM90 = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op"
     CUDA_FUSED_LOGP_GENERIC = "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp"
-    CUDA_DETERMINISTIC_LOGP = "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
+    CUDA_DETERMINISTIC_LOGP = (
+        "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
+    )
 
     # AMD ROCm optimized stack
     ROCM_AITER = "rl_engine.kernels.ops.rocm.aiter.AiterOp"
     ROCM_CK = "rl_engine.kernels.ops.rocm.composable_kernel.CKOp"
-    ROCM_FLASH_ATTN = "rl_engine.kernels.ops.rocm.attention.flash_attn.RocmFlashAttentionOp"
+    ROCM_FLASH_ATTN = (
+        "rl_engine.kernels.ops.rocm.attention.flash_attn.RocmFlashAttentionOp"
+    )
 
     # GRPO loss (group reward normalization + clipped surrogate + KL)
     TRITON_GRPO_LOSS = "rl_engine.kernels.ops.triton.loss.grpo_loss.TritonGRPOLossOp"
@@ -53,28 +59,41 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_FUSED_LINEAR_LOGP_SM90 = (
         "rl_engine.kernels.ops.cuda.loss.linear_logp.FusedLinearLogpSM90Op"
     )
-    TRITON_LINEAR_LOGP = "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp"
-    PYTORCH_LINEAR_LOGP = "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp"
+    TRITON_LINEAR_LOGP = (
+        "rl_engine.kernels.ops.triton.loss.linear_logp.TritonLinearLogpOp"
+    )
+    PYTORCH_LINEAR_LOGP = (
+        "rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp"
+    )
     # Fused policy-ratio + KL-penalty front-end (PPO/GRPO), logits -> (ratio, kl)
     TRITON_RATIO_KL = "rl_engine.kernels.ops.triton.loss.ratio_kl.TritonRatioKLOp"
     PYTORCH_RATIO_KL = "rl_engine.kernels.ops.pytorch.loss.ratio_kl.NativeRatioKLOp"
 
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
-    PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
+    PYTORCH_NATIVE_RMS_NORM = (
+        "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
+    )
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
     PYTORCH_NATIVE = "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp"
     PYTORCH_NATIVE_MATMUL = "rl_engine.kernels.ops.pytorch.linear.matmul.NativeMatmulOp"
-    PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
+    PYTORCH_NATIVE_ROPE = (
+        "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
+    )
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
-    PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    PYTORCH_NATIVE_SWIGLU = (
+        "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    )
 
     # WS1 pure-PyTorch ground-truth attention reference (hand-written fp32 softmax).
     # Distinct from PYTORCH_ATTN above, which is the production SDPA fallback.
     PYTORCH_NATIVE_ATTENTION = (
         "rl_engine.kernels.ops.pytorch.attention.standard_attn.NativeAttentionOp"
+    )
+    PYTORCH_DETERMINISTIC_CP_ATTENTION = (
+        "rl_engine.kernels.ops.pytorch.attention.cp_attention.DeterministicCPAttentionOp"
     )
     # WS1 pure-PyTorch ground-truth KV-cache (decode/incremental) attention
     # reference; concats cache+new then reuses the standard attention reduction.
@@ -82,9 +101,13 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.kernels.ops.pytorch.attention.kv_cache.NativeKVCacheAttnOp"
     )
     # WS1 pure-PyTorch ground-truth linear ops
-    PYTORCH_NATIVE_LM_HEAD = "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp"
+    PYTORCH_NATIVE_LM_HEAD = (
+        "rl_engine.kernels.ops.pytorch.linear.lm_head.NativeLMHeadOp"
+    )
     # WS1 pure-PyTorch ground-truth embedding ops
-    PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
+    PYTORCH_NATIVE_EMBEDDING = (
+        "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
+    )
 
 
 def resolve_logp_op_type(
@@ -120,7 +143,9 @@ def resolve_logp_op_type(
     }
     if normalized not in aliases:
         valid = ", ".join(sorted(aliases))
-        raise ValueError(f"unsupported logp backend {logp_backend!r}; valid values: {valid}")
+        raise ValueError(
+            f"unsupported logp backend {logp_backend!r}; valid values: {valid}"
+        )
 
     op_type = aliases[normalized]
     if require_batch_invariant:
@@ -149,7 +174,9 @@ class KernelRegistry:
         # a strict WS2 request is rejected until the deterministic CP reference
         # backend lands instead of silently selecting an incompatible fallback.
         common_roles = frozenset({AttentionRole.TRAIN, AttentionRole.INFER})
-        common_dtypes = frozenset({AttentionDType.BF16, AttentionDType.FP16, AttentionDType.FP32})
+        common_dtypes = frozenset(
+            {AttentionDType.BF16, AttentionDType.FP16, AttentionDType.FP32}
+        )
         self._attention_capabilities = {
             OpBackend.PYTORCH_NATIVE_ATTENTION: AttentionBackendCapability(
                 backend_id="pytorch-native-attention-ws1",
@@ -174,6 +201,19 @@ class KernelRegistry:
                 supports_packed_varlen=False,
                 supports_kv_cache=False,
                 implementation_kind="reference",
+            ),
+            OpBackend.PYTORCH_DETERMINISTIC_CP_ATTENTION: AttentionBackendCapability(
+                backend_id="pytorch-deterministic-cp-attention",
+                roles=frozenset({AttentionRole.INFER}),
+                modes=frozenset({AttentionMode.PREFILL}),
+                dtypes=frozenset({AttentionDType.BF16, AttentionDType.FP32}),
+                tp_world_sizes=(1, 2),
+                cp_world_sizes=(1, 2),
+                exports_attention_lse=True,
+                deterministic_cp_merge=True,
+                supports_packed_varlen=False,
+                supports_kv_cache=False,
+                implementation_kind="deterministic",
             ),
         }
 
@@ -205,11 +245,21 @@ class KernelRegistry:
                     OpBackend.CUDA_DETERMINISTIC_LOGP,
                     OpBackend.PYTORCH_NATIVE,
                 ],
-                "attn": [OpBackend.FLASH_ATTN, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_ATTN],
-                "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "attn": [
+                    OpBackend.FLASH_ATTN,
+                    OpBackend.TRITON_GENERIC,
+                    OpBackend.PYTORCH_ATTN,
+                ],
+                "attention": [
+                    OpBackend.PYTORCH_NATIVE_ATTENTION,
+                    OpBackend.PYTORCH_DETERMINISTIC_CP_ATTENTION,
+                ],
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
-                "linear_logp": [OpBackend.TRITON_LINEAR_LOGP, OpBackend.PYTORCH_LINEAR_LOGP],
+                "linear_logp": [
+                    OpBackend.TRITON_LINEAR_LOGP,
+                    OpBackend.PYTORCH_LINEAR_LOGP,
+                ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
@@ -221,7 +271,11 @@ class KernelRegistry:
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
             },
             "rocm": {
-                "logp": [OpBackend.ROCM_AITER, OpBackend.TRITON_GENERIC, OpBackend.PYTORCH_NATIVE],
+                "logp": [
+                    OpBackend.ROCM_AITER,
+                    OpBackend.TRITON_GENERIC,
+                    OpBackend.PYTORCH_NATIVE,
+                ],
                 "logp_deterministic": [OpBackend.PYTORCH_NATIVE],
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [
@@ -229,11 +283,17 @@ class KernelRegistry:
                     OpBackend.PYTORCH_ATTN,
                     OpBackend.TRITON_GENERIC,
                 ],
-                "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "attention": [
+                    OpBackend.PYTORCH_NATIVE_ATTENTION,
+                    OpBackend.PYTORCH_DETERMINISTIC_CP_ATTENTION,
+                ],
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
-                "linear_logp": [OpBackend.TRITON_LINEAR_LOGP, OpBackend.PYTORCH_LINEAR_LOGP],
+                "linear_logp": [
+                    OpBackend.TRITON_LINEAR_LOGP,
+                    OpBackend.PYTORCH_LINEAR_LOGP,
+                ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
@@ -247,7 +307,10 @@ class KernelRegistry:
                 "logp_deterministic": [OpBackend.PYTORCH_NATIVE],
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_ATTN],
-                "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "attention": [
+                    OpBackend.PYTORCH_NATIVE_ATTENTION,
+                    OpBackend.PYTORCH_DETERMINISTIC_CP_ATTENTION,
+                ],
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
@@ -279,7 +342,11 @@ class KernelRegistry:
                 OpBackend.ROCM_FLASH_ATTN,
                 OpBackend.TRITON_GENERIC,
             ]
-        elif rocm_attn_backend and rocm_attn_backend not in {"native", "pytorch", "sdpa"}:
+        elif rocm_attn_backend and rocm_attn_backend not in {
+            "native",
+            "pytorch",
+            "sdpa",
+        }:
             logger.warning(
                 "Unknown RL_KERNEL_ROCM_ATTN_BACKEND=%s; using default ROCm attention priority.",
                 rocm_attn_backend,
@@ -298,7 +365,9 @@ class KernelRegistry:
             cc = cc_major * 10 + cc_minor
             tma_compiled = _EXT_AVAILABLE and hasattr(_C, "fused_logp_sm90")
 
-            sm90_logp_enabled = os.getenv("RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP") == "1"
+            sm90_logp_enabled = (
+                os.getenv("RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP") == "1"
+            )
             if sm90_logp_enabled and tma_compiled and cc_major in (9, 10, 12):
                 logger.info(
                     f"Detected TMA-capable architecture (SM{cc}); "
@@ -310,7 +379,9 @@ class KernelRegistry:
 
             # The fused linear-logp SM90 kernel uses TMA bulk-tensor copies built
             # for sm_90a -- gate strictly on cc_major == 9 (Hopper), not >= 9.
-            linear_logp_compiled = _EXT_AVAILABLE and hasattr(_C, "fused_linear_logp_sm90")
+            linear_logp_compiled = _EXT_AVAILABLE and hasattr(
+                _C, "fused_linear_logp_sm90"
+            )
             if linear_logp_compiled and cc_major == 9:
                 ll_list = self._priority_map["cuda"]["linear_logp"]
                 if OpBackend.CUDA_FUSED_LINEAR_LOGP_SM90 not in ll_list:
@@ -333,7 +404,9 @@ class KernelRegistry:
             platform = "cuda"
         else:
             platform = "cpu"
-        candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
+        candidates = self._priority_map.get(platform, {}).get(
+            op_type, [OpBackend.PYTORCH_NATIVE]
+        )
 
         for backend in candidates:
             if backend.name in self._instance_cache:
@@ -376,17 +449,25 @@ class KernelRegistry:
         requested_backend = requested_backend.strip().lower()
 
         platform = self._platform()
-        op_type = "kv_cache_attention" if contract.mode is AttentionMode.DECODE else "attention"
+        op_type = (
+            "kv_cache_attention"
+            if contract.mode is AttentionMode.DECODE
+            else "attention"
+        )
         candidates = self._priority_map.get(platform, {}).get(op_type, [])
         rejected: list[str] = []
 
         for backend in candidates:
             capability = self._attention_capabilities.get(backend)
             if capability is None:
-                rejected.append(f"{backend.name}: no AttentionBackendCapability declared")
+                rejected.append(
+                    f"{backend.name}: no AttentionBackendCapability declared"
+                )
                 continue
             incompatibilities = list(capability.incompatibilities(contract))
-            policy_mismatch = self._attention_policy_mismatch(requested_backend, capability)
+            policy_mismatch = self._attention_policy_mismatch(
+                requested_backend, capability
+            )
             if policy_mismatch is not None:
                 incompatibilities.append(policy_mismatch)
             if incompatibilities:
@@ -395,7 +476,9 @@ class KernelRegistry:
 
             op = self._get_or_create_backend(backend)
             if op is None:
-                rejected.append(f"{backend.name}: backend could not be loaded or instantiated")
+                rejected.append(
+                    f"{backend.name}: backend could not be loaded or instantiated"
+                )
                 continue
 
             provenance = {
@@ -483,8 +566,14 @@ class KernelRegistry:
             is_missing_backend = missing_module and (
                 missing_module == module_path or module_path.startswith(missing_module)
             )
-            if missing_module and "rl_engine" in missing_module and not is_missing_backend:
-                logger.critical(f"Internal wrapper implementation bug in '{module_path}': {e}")
+            if (
+                missing_module
+                and "rl_engine" in missing_module
+                and not is_missing_backend
+            ):
+                logger.critical(
+                    f"Internal wrapper implementation bug in '{module_path}': {e}"
+                )
                 raise e
             logger.warning(f"Backend {backend.name} unavailable: {e}. Falling back...")
             return None

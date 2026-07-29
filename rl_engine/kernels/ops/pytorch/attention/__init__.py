@@ -4,6 +4,14 @@
 import torch
 import torch.nn.functional as F
 
+from .cp_attention import (
+    AttentionPartial,
+    DeterministicCPAttentionOp,
+    distributed_cp_attention,
+    merge_attention_partials,
+    partial_attention,
+)
+
 
 class NativeAttentionOp:
     """PyTorch SDPA fallback for FlashAttention-layout tensors."""
@@ -46,4 +54,11 @@ class NativeAttentionOp:
         return out.transpose(1, 2)
 
 
-__all__ = ["NativeAttentionOp"]
+__all__ = [
+    "AttentionPartial",
+    "DeterministicCPAttentionOp",
+    "NativeAttentionOp",
+    "distributed_cp_attention",
+    "merge_attention_partials",
+    "partial_attention",
+]

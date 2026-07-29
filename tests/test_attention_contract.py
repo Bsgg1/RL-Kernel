@@ -206,7 +206,9 @@ def test_causal_attention_requires_explicit_offset():
 
 
 def test_full_prefill_query_length_must_match_local_sequence_length():
-    with pytest.raises(AttentionContractError, match="prefill query_sequence_length must equal"):
+    with pytest.raises(
+        AttentionContractError, match="prefill query_sequence_length must equal"
+    ):
         _contract(mode="prefill", query_sequence_length=2048)
 
     chunked = _contract(mode="chunked_prefill", query_sequence_length=512)
@@ -426,7 +428,9 @@ def test_undeclared_backend_capability_is_never_selected():
 
 def test_declared_compatible_backend_resolves_and_records_provenance():
     registry = KernelRegistry()
-    registry._attention_capabilities[OpBackend.PYTORCH_NATIVE_ATTENTION] = _declared_cp_backend()
+    registry._attention_capabilities[OpBackend.PYTORCH_NATIVE_ATTENTION] = (
+        _declared_cp_backend()
+    )
 
     result = registry.get_attention_op(_contract(), requested_backend="deterministic")
 
@@ -439,11 +443,45 @@ def test_declared_compatible_backend_resolves_and_records_provenance():
     json.dumps(result.provenance)
 
 
+def test_real_deterministic_cp_backend_resolves_for_tp2_cp2_prefill():
+    registry = KernelRegistry()
+    sharding = _sharding(
+        tp_world_size=2,
+        cp_world_size=2,
+        global_sequence_length=16,
+        local_sequence_length=8,
+        global_block_indices=(0,),
+        global_block_token_starts=(0,),
+        local_block_offsets=(0, 8),
+    )
+
+    result = registry.get_attention_op(_contract(sharding=sharding))
+
+    assert result.capability.backend_id == "pytorch-deterministic-cp-attention"
+    assert result.capability.exports_attention_lse is True
+    assert result.capability.deterministic_cp_merge is True
+    assert result.provenance["contract"]["sharding"]["tp_world_size"] == 2
+    assert result.provenance["contract"]["sharding"]["cp_world_size"] == 2
+    assert result.provenance["actual_backend"] == "pytorch-deterministic-cp-attention"
+
+
+def test_legacy_attention_dispatch_still_selects_ws1_native_backend():
+    registry = KernelRegistry()
+
+    op = registry.get_op("attention")
+
+    assert op.__class__.__module__.endswith("standard_attn")
+
+
 def test_requested_stable_backend_id_is_enforced():
     registry = KernelRegistry()
-    registry._attention_capabilities[OpBackend.PYTORCH_NATIVE_ATTENTION] = _declared_cp_backend()
+    registry._attention_capabilities[OpBackend.PYTORCH_NATIVE_ATTENTION] = (
+        _declared_cp_backend()
+    )
 
-    with pytest.raises(RuntimeError, match="does not match requested_backend=another-backend"):
+    with pytest.raises(
+        RuntimeError, match="does not match requested_backend=another-backend"
+    ):
         registry.get_attention_op(_contract(), requested_backend="another-backend")
 
     result = registry.get_attention_op(
@@ -460,7 +498,9 @@ def test_packed_layout_requires_declared_backend_support():
         batch_size=2,
     )
 
-    assert capability.incompatibilities(contract) == ("packed varlen layout is unsupported",)
+    assert capability.incompatibilities(contract) == (
+        "packed varlen layout is unsupported",
+    )
 
 
 def test_packed_sequence_count_must_match_logical_batch_size():
